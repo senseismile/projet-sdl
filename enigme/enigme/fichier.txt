@@ -1,0 +1,252 @@
+What is the capital of France?
+Paris
+London
+Berlin
+0
+Which planet is known as the Red Planet?
+Venus
+Mars
+Jupiter
+1
+How many continents are there on Earth?
+5
+7
+9
+1
+Who painted the Mona Lisa?
+Vincent van Gogh
+Leonardo da Vinci
+Pablo Picasso
+1
+What is the largest mammal in the world?
+Elephant
+Blue whale
+Giraffe
+1
+What is the chemical symbol for gold?
+Go
+Au
+Ag
+1
+Which country is home to the kangaroo?
+South Africa
+Australia
+Brazil
+1
+How many colors are in a rainbow?
+5
+7
+9
+1
+What is the largest planet in our solar system?
+Earth
+Saturn
+Jupiter
+2
+Who wrote "Romeo and Juliet"?
+Charles Dickens
+William Shakespeare
+Mark Twain
+1
+What is the hardest natural substance on Earth?
+Gold
+Diamond
+Iron
+1
+Which ocean is the largest?
+Atlantic
+Indian
+Pacific
+2
+How many bones are in the adult human body?
+206
+300
+150
+0
+What is the capital of Japan?
+Beijing
+Seoul
+Tokyo
+2
+Which animal is known as the "King of the Jungle"?
+Lion
+Tiger
+Elephant
+0
+What is the largest organ in the human body?
+Heart
+Skin
+Liver
+1
+Which country gifted the Statue of Liberty to the US?
+France
+England
+Spain
+0
+How many players are on a baseball team?
+7
+9
+11
+1
+What is the main component of the Sun?
+Liquid lava
+Hydrogen gas
+Rock
+1
+Which language has the most native speakers?
+English
+Mandarin Chinese
+Spanish
+1
+What is the capital of Canada?
+Toronto
+Ottawa
+Montreal
+1
+Which planet is closest to the Sun?
+Venus
+Mercury
+Mars
+1
+How many sides does a hexagon have?
+5
+6
+7
+1
+Who invented the telephone?
+Thomas Edison
+Alexander Graham Bell
+Nikola Tesla
+1
+What is the largest desert in the world?
+Sahara
+Antarctica
+Gobi
+1
+Which country is the largest by land area?
+China
+Canada
+Russia
+2
+What is the smallest prime number?
+1
+2
+3
+1
+Which element has the chemical symbol 'O'?
+Gold
+Oxygen
+Osmium
+1
+How many hearts does an octopus have?
+1
+2
+3
+2
+What is the capital of Italy?
+Venice
+Rome
+Milan
+1
+Which planet has the most moons?
+Jupiter
+Saturn
+Uranus
+1
+Who discovered gravity?
+Albert Einstein
+Isaac Newton
+Galileo Galilei
+1
+What is the currency of Japan?
+Yuan
+Won
+Yen
+2
+How many time zones are there in Russia?
+5
+9
+11
+2
+Which country is the largest producer of coffee?
+Brazil
+Colombia
+Vietnam
+0
+What is the tallest mountain in the world?
+K2
+Mount Everest
+Kilimanjaro
+1
+Which animal can sleep standing up?
+Horse
+Dog
+Cat
+0
+What is the capital of Egypt?
+Cairo
+Alexandria
+Luxor
+0
+How many stripes are on the US flag?
+11
+13
+15
+1
+Which planet is known for its rings?
+Jupiter
+Saturn
+Uranus
+1
+Who was the first person to walk on the moon?
+Neil Armstrong
+Buzz Aldrin
+Yuri Gagarin
+0
+What is the largest species of shark?
+Great White
+Whale Shark
+Hammerhead
+1
+Which country invented tea?
+China
+India
+England
+0
+How many bones do sharks have?
+0
+100
+200
+0
+What is the capital of Brazil?
+Rio de Janeiro
+Brasília
+São Paulo
+1
+Which fruit is known as the "king of fruits"?
+Apple
+Mango
+Durian
+2
+How many years are in a millennium?
+100
+1000
+10000
+1
+Which country has the most volcanoes?
+Indonesia
+Japan
+United States
+0
+What is the fastest land animal?
+Cheetah
+Lion
+Gazelle
+0
+Which blood type is the universal donor?
+A
+B
+O
+2
+
+
