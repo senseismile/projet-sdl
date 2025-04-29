@@ -2,33 +2,11 @@
 
 int main(int argc, char** argv) {
     SDL_Event event;
-    SDL_Rect positionimage, positiontexte, positionhint, positionhorloge, positionroto;
-    SDL_Rect p_rune1, p_rune2, p_rune3, p_rune4, p_rune5, p_rune6;
-    SDL_Surface *ecran = NULL, *image = NULL, *message = NULL, *hint = NULL, *facile = NULL, *moyen = NULL, *difficile = NULL, *current = NULL;
-    SDL_Surface *horloge0 = NULL, *horloge1 = NULL, *horloge2 = NULL, *horloge3 = NULL, *horloge4 = NULL, *horloge5 = NULL, *horloge6 = NULL, *horloge7 = NULL, *horloge8 = NULL;
-    SDL_Surface *rune1 = NULL, *rune2 = NULL, *rune3 = NULL, *rune4 = NULL, *rune5 = NULL, *rune6 = NULL;
-    TTF_Font *font = NULL, *fontm = NULL, *fontdiff = NULL;
-    SDL_Surface *saha = NULL, *faux = NULL, *temps = NULL;
-    int (*currentVictoire)[6] = NULL;
-    char difficultyText[20] = {0};
-    SDL_Surface *difficultyMessage = NULL;
-    SDL_Rect difficultyPosition = {600, 57, 0, 0};
-    SDL_Color difficultyColor = {255, 0, 0};
-    SDL_Color textColor = {0, 0, 0};
-    SDL_Color hintColor = {255, 165, 0};
-    Mix_Chunk *son;
-    int mousex, mousey;
-    int quitter = 1, nb = 0;
-    int victoire[] = {2, 3, 4, 5, 1, 6}; //facile
-    int victoire2[] = {1, 1, 2, 2, 3, 3};//moyenne
-    int victoire3[] = {4, 5, 6, 3, 2, 2};//difficile 
-    int t[6] = {0}; 
-    char hintText[100];
-    int click1 = 0, click2 = 0, click3 = 0, click4 = 0, click5 = 0, click6 = 0;
-    int i, test, nb_fail = 0, fin_jeu = 0, in_transition = 1;
-    Uint32 gameStartTime;
+    GameState state = {0}; 
+    int i, test;
     srand(time(NULL));
 
+   
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0) {
         printf("Échec d'initialisation de SDL : %s\n", SDL_GetError());
         return 1;
@@ -44,390 +22,401 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    ecran = SDL_SetVideoMode(SCREEN_WIDTH, SCREEN_HEIGHT, 32, SDL_HWSURFACE | SDL_DOUBLEBUF);
-    if (ecran == NULL) {
+   
+    state.ecran = SDL_SetVideoMode(SCREEN_WIDTH, SCREEN_HEIGHT, 32, SDL_HWSURFACE | SDL_DOUBLEBUF);
+    if (state.ecran == NULL) {
         printf("Échec de création de la fenêtre : %s\n", SDL_GetError());
         return 1;
     }
     
-    if(display_screen(ecran, "runes-meaning.png", 10000) != 0) return 1;
-	
-    image = IMG_Load("enigmeback.png");
-    if (image == NULL) {
-        printf("Erreur de chargement de l'image : %s\n", IMG_GetError());
-        return 1;
-    }
-    saha = IMG_Load("saha.png");
-    if (saha == NULL) {
-        printf("Erreur de chargement de l'image : %s\n", IMG_GetError());
-        return 1;
-    }
-    faux = IMG_Load("Faux.png");
-    if (faux== NULL) {
-        printf("Erreur de chargement de l'image : %s\n", IMG_GetError());
-        return 1;
-    }
-    temps = IMG_Load("temps.png");
-    if (temps == NULL) {
-        printf("Erreur de chargement de l'image : %s\n", IMG_GetError());
-        return 1;
-    }
     
-    horloge0 = IMG_Load("horloge1.0.png");
-    if (horloge0 == NULL) {
-        printf("Erreur de chargement de l'image : %s\n", IMG_GetError());
-        return 1;
-    }
+    if (display_screen(state.ecran, "runes-meaning.png", 10000) != 0) return 1;
+
     
-    horloge1 = IMG_Load("horloge1.1.png");
-    if (horloge1 == NULL) {
+    state.image = IMG_Load("enigmeback.png");
+    if (state.image == NULL) {
         printf("Erreur de chargement de l'image : %s\n", IMG_GetError());
         return 1;
     }
-    
-    horloge2 = IMG_Load("horloge1.2.png");
-    if (horloge2 == NULL) {
+    state.saha = IMG_Load("saha.png");
+    if (state.saha == NULL) {
         printf("Erreur de chargement de l'image : %s\n", IMG_GetError());
         return 1;
     }
-    horloge3 = IMG_Load("horloge1.3.png");
-    if (horloge3 == NULL) {
+    state.faux = IMG_Load("Faux.png");
+    if (state.faux == NULL) {
         printf("Erreur de chargement de l'image : %s\n", IMG_GetError());
         return 1;
     }
-    horloge4 = IMG_Load("horloge1.4.png");
-    if (horloge4 == NULL) {
+    state.temps = IMG_Load("temps.png");
+    if (state.temps == NULL) {
         printf("Erreur de chargement de l'image : %s\n", IMG_GetError());
         return 1;
     }
-    horloge5 = IMG_Load("horloge1.5.png");
-    if (horloge5 == NULL) {
-        printf("Erreur de chargement de l'image : %s\n", IMG_GetError());
-        return 1;
+
+    char horloge_paths[9][20] = {
+        "horloge1.0.png", "horloge1.1.png", "horloge1.2.png", "horloge1.3.png",
+        "horloge1.4.png", "horloge1.5.png", "horloge1.6.png", "horloge1.7.png",
+        "horloge1.8.png"
+    };
+    for (i = 0; i < 9; i++) {
+        state.horloge[i] = IMG_Load(horloge_paths[i]);
+        if (state.horloge[i] == NULL) {
+            printf("Erreur de chargement de l'image : %s\n", IMG_GetError());
+            return 1;
+        }
     }
-    horloge6 = IMG_Load("horloge1.6.png");
-    if (horloge6 == NULL) {
-        printf("Erreur de chargement de l'image : %s\n", IMG_GetError());
-        return 1;
+
+   
+    char rune_files[6][10] = {"f.png", "b.png", "v.png", "g.png", "t.png", "r.png"};
+    char rune_hover_files[6][15] = {
+        "f_hover.png", "b_hover.png", "v_hover.png",
+        "g_hover.png", "t_hover.png", "r_hover.png"
+    };
+    for (i = 0; i < 6; i++) {
+        state.rune[i] = IMG_Load(rune_files[i]);
+        if (state.rune[i] == NULL) {
+            printf("Erreur de chargement de l'image : %s\n", IMG_GetError());
+            return 1;
+        }
+        state.rune_hover[i] = IMG_Load(rune_hover_files[i]);
+        if (state.rune_hover[i] == NULL) {
+            printf("Erreur de chargement de l'image : %s\n", IMG_GetError());
+            return 1;
+        }
+        state.r[i] = state.rune[i]; 
     }
-    horloge7 = IMG_Load("horloge1.7.png");
-    if (horloge7 == NULL) {
-        printf("Erreur de chargement de l'image : %s\n", IMG_GetError());
-        return 1;
-    }
-    horloge8 = IMG_Load("horloge1.8.png");
-    if (horloge8 == NULL) {
-        printf("Erreur de chargement de l'image : %s\n", IMG_GetError());
-        return 1;
-    }
-    
-    rune1 = IMG_Load("f.png");
-    if (rune1 == NULL) {
-        printf("Erreur de chargement de l'image : %s\n", IMG_GetError());
-        return 1;
-    }
-    
-    rune2 = IMG_Load("b.png");
-    if (rune2 == NULL) {
-        printf("Erreur de chargement de l'image : %s\n", IMG_GetError());
-        return 1;
-    }
-    
-    rune3 = IMG_Load("v.png");
-    if (rune3 == NULL) {
-        printf("Erreur de chargement de l'image : %s\n", IMG_GetError());
-        return 1;
-    }
-    
-    rune4 = IMG_Load("g.png");
-    if (rune4 == NULL) {
-        printf("Erreur de chargement de l'image : %s\n", IMG_GetError());
-        return 1;
-    }
-    
-    rune5 = IMG_Load("t.png");
-    if (rune5 == NULL) {
-        printf("Erreur de chargement de l'image : %s\n", IMG_GetError());
-        return 1;
-    }
-    
-    rune6 = IMG_Load("r.png");
-    if (rune6 == NULL) {
-        printf("Erreur de chargement de l'image : %s\n", IMG_GetError());
-        return 1;
-    }
-    fontdiff = TTF_OpenFont("DalekPinpointBold.ttf", 50);
-    if (fontdiff == NULL) {
+
+    state.fontdiff = TTF_OpenFont("DalekPinpointBold.ttf", 50);
+    if (state.fontdiff == NULL) {
         printf("Erreur de chargement de la police : %s\n", TTF_GetError());
         return 1;
     }
-	
-    font = TTF_OpenFont("arial.ttf", 50);
-    if (font == NULL) {
+    state.font = TTF_OpenFont("arial.ttf", 50);
+    if (state.font == NULL) {
         printf("Erreur de chargement de la police : %s\n", TTF_GetError());
         return 1;
     }
-    fontm = TTF_OpenFont("arial.ttf", 40);
-    if (font == NULL) {
+    state.fontm = TTF_OpenFont("arial.ttf", 40);
+    if (state.fontm == NULL) {
         printf("Erreur de chargement de la police : %s\n", TTF_GetError());
         return 1;
     }
-    facile = IMG_Load("facile.png");
-    if (facile == NULL) {
+
+    state.facile = IMG_Load("facile.png");
+    if (state.facile == NULL) {
         printf("Error loading facile: %s\n", IMG_GetError());
         return 1;
     }
-    moyen = IMG_Load("moyen.png");
-    if (moyen == NULL) {
+    state.moyen = IMG_Load("moyen.png");
+    if (state.moyen == NULL) {
         printf("Error loading moyen: %s\n", IMG_GetError());
         return 1;
     }
-    difficile = IMG_Load("difficile.png");
-    if (difficile == NULL) {
+    state.difficile = IMG_Load("difficile.png");
+    if (state.difficile == NULL) {
         printf("Error loading difficile: %s\n", IMG_GetError());
         return 1;
     }
-    son= Mix_LoadWAV( "click-8.wav" );
-    
-    int difficulty = rand() % 3;
-    switch(difficulty) {
+
+    state.son = Mix_LoadWAV("click-8.wav");
+    if (state.son == NULL) {
+        printf("Erreur de chargement du son : %s\n", Mix_GetError());
+        return 1;
+    }
+
+
+    state.quitter = 1;
+    state.difficulty = rand() % 3;
+    switch (state.difficulty) {
         case 0:
-            currentVictoire = &victoire;
-            strcpy(difficultyText, "Facile");
+            state.currentVictoire = &state.victoire;
+            strcpy(state.difficultyText, "Facile");
+            state.current = state.facile;
+            memcpy(state.victoire, (int[]){2, 3, 4, 5, 1, 6}, sizeof(int) * 6);
             break;
         case 1:
-            currentVictoire = &victoire2;
-            strcpy(difficultyText, "Moyen");
+            state.currentVictoire = &state.victoire2;
+            strcpy(state.difficultyText, "Moyen");
+            state.current = state.moyen;
+            memcpy(state.victoire2, (int[]){1, 1, 2, 2, 3, 3}, sizeof(int) * 6);
             break;
         case 2:
-            currentVictoire = &victoire3;
-            strcpy(difficultyText, "Difficile");
+            state.currentVictoire = &state.victoire3;
+            strcpy(state.difficultyText, "Difficile");
+            state.current = state.difficile;
+            memcpy(state.victoire3, (int[]){4, 5, 6, 3, 2, 2}, sizeof(int) * 6);
             break;
     }
-    switch(difficulty) {
-        case 0: current = facile; break;
-        case 1: current = moyen; break;
-        case 2: current = difficile; break;
-    }
 
-    difficultyMessage = TTF_RenderText_Solid(fontdiff, difficultyText, difficultyColor);
-    
-    positionimage.x = 0;
-    positionimage.y = 0;
-    positiontexte.x = 500;
-    positiontexte.y = 150;
-    positionhint.x = 200;
-    positionhint.y = 350;
-    positionhorloge.x = 200;
-    positionhorloge.y = 400;
-    positionroto.x = 10;
-    positionroto.y = 0;
-    p_rune1.x = 270;
-    p_rune1.y = 200;
-    p_rune2.x = 412;
-    p_rune2.y = 205;
-    p_rune3.x = 560;
-    p_rune3.y = 210;
-    p_rune4.x = 700;
-    p_rune4.y = 210;
-    p_rune5.x = 855;
-    p_rune5.y = 210;
-    p_rune6.x = 1001;
-    p_rune6.y = 215;
-    
-    gameStartTime = SDL_GetTicks();
-    SDL_Surface *tabh[9] = {horloge0, horloge1, horloge2, horloge3, horloge4, horloge5, horloge6, horloge7, horloge8};
-    int current_clock = 0;
-    Uint32 last_change = SDL_GetTicks();
-    int time_up = 0;
-   
 
-    while (quitter) {
-    
-   	Uint32 currentTime = SDL_GetTicks();
-   	Uint32 elapsed = currentTime - gameStartTime;
-      
-        if (!fin_jeu && SDL_GetTicks() - last_change > 4000) {  
-            current_clock = (current_clock + 1) % 9;
-            last_change = SDL_GetTicks();
-            
-        
-            if (current_clock == 8) {
-                time_up = 1;
+    state.difficultyColor.r = 255;
+    state.difficultyColor.g = 0;
+    state.difficultyColor.b = 0;
+    state.textColor.r = 0;
+    state.textColor.g = 0;
+    state.textColor.b = 0;
+    state.hintColor.r = 255;
+    state.hintColor.g = 165;
+    state.hintColor.b = 0;
+    state.difficultyMessage = TTF_RenderText_Solid(state.fontdiff, state.difficultyText, state.difficultyColor);
+
+    state.positionimage.x = 0;
+    state.positionimage.y = 0;
+    state.positiontexte.x = 500;
+    state.positiontexte.y = 150;
+    state.positionhint.x = 200;
+    state.positionhint.y = 350;
+    state.positionhorloge.x = 200;
+    state.positionhorloge.y = 400;
+    state.positionroto.x = 10;
+    state.positionroto.y = 0;
+    state.difficultyPosition.x = 600;
+    state.difficultyPosition.y = 57;
+
+    state.p_rune[0].x = 270;
+    state.p_rune[0].y = 200;
+    state.p_rune[1].x = 412;
+    state.p_rune[1].y = 205;
+    state.p_rune[2].x = 560;
+    state.p_rune[2].y = 210;
+    state.p_rune[3].x = 700;
+    state.p_rune[3].y = 210;
+    state.p_rune[4].x = 855;
+    state.p_rune[4].y = 210;
+    state.p_rune[5].x = 1001;
+    state.p_rune[5].y = 215;
+
+
+    state.gameStartTime = SDL_GetTicks();
+    state.last_change = SDL_GetTicks();
+
+
+    while (state.quitter) {
+        Uint32 currentTime = SDL_GetTicks();
+        Uint32 elapsed = currentTime - state.gameStartTime;
+
+        if (!state.fin_jeu && SDL_GetTicks() - state.last_change > 4000) {
+            state.current_clock = (state.current_clock + 1) % 9;
+            state.last_change = SDL_GetTicks();
+            if (state.current_clock == 8) {
+                state.time_up = 1;
             }
         }
-	
-        SDL_FillRect(ecran, NULL, SDL_MapRGB(ecran->format, 255, 255, 255));
-        SDL_BlitSurface(image, NULL, ecran, &positionimage);
-        SDL_BlitSurface(tabh[current_clock], NULL, ecran, &positionhorloge);
-        if(elapsed < 4000) {
-            SDL_BlitSurface(current, NULL, ecran, &positionroto);
-        }
-        else {
-        if (difficultyMessage) {
-            SDL_BlitSurface(difficultyMessage, NULL, ecran, &difficultyPosition);
-        }
-        SDL_BlitSurface(rune1, NULL, ecran, &p_rune1);
-        SDL_BlitSurface(rune2, NULL, ecran, &p_rune2);
-        SDL_BlitSurface(rune3, NULL, ecran, &p_rune3);
-        SDL_BlitSurface(rune4, NULL, ecran, &p_rune4);
-        SDL_BlitSurface(rune5, NULL, ecran, &p_rune5);
-        SDL_BlitSurface(rune6, NULL, ecran, &p_rune6);
 
-        if (hint && nb_fail >= 3) {
-            SDL_BlitSurface(hint, NULL, ecran, &positionhint);
-        }
+        SDL_FillRect(state.ecran, NULL, SDL_MapRGB(state.ecran->format, 255, 255, 255));
+        SDL_BlitSurface(state.image, NULL, state.ecran, &state.positionimage);
+        SDL_BlitSurface(state.horloge[state.current_clock], NULL, state.ecran, &state.positionhorloge);
         
-    
-        if (time_up) {
-            SDL_BlitSurface(temps, NULL, ecran, &positionroto);
-            SDL_BlitSurface(message, NULL, ecran, &positiontexte);
-            SDL_Flip(ecran);
-            SDL_Delay(2000);
-            
-        
-            resetGame(&nb, t);
-            fin_jeu = 0;
-            current_clock = 0;
-            time_up = 0;
-            last_change = SDL_GetTicks();
-            
-           
-            
-            if (difficultyMessage) SDL_FreeSurface(difficultyMessage);
-            difficultyMessage = TTF_RenderText_Solid(font, difficultyText, difficultyColor);
-            
-            if (hint) {
-                SDL_FreeSurface(hint);
-                hint = NULL;
+        if (elapsed < 4000) {
+            SDL_BlitSurface(state.current, NULL, state.ecran, &state.positionroto);
+        } else {
+            if (state.difficultyMessage) {
+                SDL_BlitSurface(state.difficultyMessage, NULL, state.ecran, &state.difficultyPosition);
             }
-            
-            SDL_FreeSurface(message);
-            message = NULL;
-            continue;
+            for (i = 0; i < 6; i++) {
+                SDL_BlitSurface(state.r[i], NULL, state.ecran, &state.p_rune[i]);
+            }
+            if (state.hint && state.nb_fail >= 3) {
+                SDL_BlitSurface(state.hint, NULL, state.ecran, &state.positionhint);
+            }
+
+            if (state.time_up) {
+                SDL_BlitSurface(state.temps, NULL, state.ecran, &state.positionroto);
+                SDL_BlitSurface(state.message, NULL, state.ecran, &state.positiontexte);
+                SDL_Flip(state.ecran);
+                SDL_Delay(2000);
+
+                resetGame(&state);
+                state.fin_jeu = 0;
+                state.current_clock = 0;
+                state.time_up = 0;
+                state.last_change = SDL_GetTicks();
+
+                if (state.difficultyMessage) SDL_FreeSurface(state.difficultyMessage);
+                state.difficultyMessage = TTF_RenderText_Solid(state.font, state.difficultyText, state.difficultyColor);
+
+                if (state.hint) {
+                    SDL_FreeSurface(state.hint);
+                    state.hint = NULL;
+                }
+
+                if (state.message) SDL_FreeSurface(state.message);
+                state.message = NULL;
+                continue;
+            }
         }
-       } 
-        
+
+        SDL_GetMouseState(&state.mousex, &state.mousey);
+        for (i = 0; i < 6; i++) {
+            state.r[i] = state.rune[i];
+        }
+
+        if (state.mousex >= 270 && state.mousex <= 320 && state.mousey >= 220 && state.mousey <= 315) {
+            state.r[0] = state.rune_hover[0];
+        }
+        if (state.mousex >= 410 && state.mousex <= 515 && state.mousey >= 220 && state.mousey <= 310) {
+            state.r[1] = state.rune_hover[1];
+        }
+        if (state.mousex >= 550 && state.mousex <= 615 && state.mousey >= 220 && state.mousey <= 320) {
+            state.r[2] = state.rune_hover[2];
+        }
+        if (state.mousex >= 700 && state.mousex <= 760 && state.mousey >= 215 && state.mousey <= 330) {
+            state.r[3] = state.rune_hover[3];
+        }
+        if (state.mousex >= 845 && state.mousex <= 920 && state.mousey >= 215 && state.mousey <= 320) {
+            state.r[4] = state.rune_hover[4];
+        }
+        if (state.mousex >= 980 && state.mousex <= 1050 && state.mousey >= 215 && state.mousey <= 315) {
+            state.r[5] = state.rune_hover[5];
+        }
+
         while (SDL_PollEvent(&event)) {
             switch (event.type) {
                 case SDL_QUIT:
-                    quitter = 0;
+                    state.quitter = 0;
                     break;
                 case SDL_KEYDOWN:
-                    if (event.key.keysym.sym == SDLK_ESCAPE) quitter = 0;
-                    break;
-                case SDL_MOUSEBUTTONDOWN:
-                  if (elapsed >= 4000 && nb < 6) {
-                    mousex = event.button.x;
-                    mousey = event.button.y;
-
-                    if (mousex >= 270 && mousex <= 320 && mousey >= 220 && mousey <= 315) {
-                        Mix_PlayChannel(-1, son, 0);
-                        t[nb] = 1; 
-                        nb++;
-                    } else if (mousex >= 410 && mousex <= 515 && mousey >= 220 && mousey <= 310) {
-                        Mix_PlayChannel(-1, son, 0);
-                        t[nb] = 2; 
-                        nb++;
-                    } else if (mousex >= 550 && mousex <= 615 && mousey >= 220 && mousey <= 320) {
-                        Mix_PlayChannel(-1, son, 0);
-                        t[nb] = 3; 
-                        nb++;
-                    } else if (mousex >= 700 && mousex <= 760 && mousey >= 215 && mousey <= 330) {
-                        Mix_PlayChannel(-1, son, 0);
-                        t[nb] = 4; 
-                        nb++;
-                    } else if (mousex >= 845 && mousex <= 920 && mousey >= 215 && mousey <= 320) {
-                        Mix_PlayChannel(-1, son, 0);
-                        t[nb] = 5; 
-                        nb++;
-                    } else if (mousex >= 980 && mousex <= 1050 && mousey >= 215 && mousey <= 315) {
-                        Mix_PlayChannel(-1, son, 0);
-                        t[nb] = 6; 
-                        nb++;
+                    if (event.key.keysym.sym == SDLK_ESCAPE) state.quitter = 0;
+                     if (elapsed >= 4000 && state.nb < 6) {
+                        state.mousex = event.button.x;
+                        state.mousey = event.button.y;
+                        if (event.key.keysym.sym == SDLK_a){
+                            Mix_PlayChannel(-1, state.son, 0);
+                            state.t[state.nb] = 1;
+                            state.nb++;
+                        }
+                        if (event.key.keysym.sym == SDLK_z){
+                            Mix_PlayChannel(-1, state.son, 0);
+                            state.t[state.nb] = 2;
+                            state.nb++;
+                        }
+                        if (event.key.keysym.sym == SDLK_e){  
+                            Mix_PlayChannel(-1, state.son, 0);
+                            state.t[state.nb] = 3;
+                            state.nb++;
+                        }
+                        if (event.key.keysym.sym == SDLK_r){  
+                            Mix_PlayChannel(-1, state.son, 0);
+                            state.t[state.nb] = 4;
+                            state.nb++;
+                        }
+                        if (event.key.keysym.sym == SDLK_t){  
+                            Mix_PlayChannel(-1, state.son, 0);
+                            state.t[state.nb] = 5;
+                            state.nb++;
+                        }  
+                        if (event.key.keysym.sym == SDLK_y){  
+                            Mix_PlayChannel(-1, state.son, 0);
+                            state.t[state.nb] = 6;
+                            state.nb++;
+                        } 
                     }
                     break;
-                }
+                case SDL_MOUSEBUTTONDOWN:
+                    if (elapsed >= 4000 && state.nb < 6) {
+                        state.mousex = event.button.x;
+                        state.mousey = event.button.y;
+
+                        if (state.mousex >= 270 && state.mousex <= 320 && state.mousey >= 220 && state.mousey <= 315) {
+                            Mix_PlayChannel(-1, state.son, 0);
+                            state.t[state.nb] = 1;
+                            state.nb++;
+                        } else if (state.mousex >= 410 && state.mousex <= 515 && state.mousey >= 220 && state.mousey <= 310) {
+                            Mix_PlayChannel(-1, state.son, 0);
+                            state.t[state.nb] = 2;
+                            state.nb++;
+                        } else if (state.mousex >= 550 && state.mousex <= 615 && state.mousey >= 220 && state.mousey <= 320) {
+                            Mix_PlayChannel(-1, state.son, 0);
+                            state.t[state.nb] = 3;
+                            state.nb++;
+                        } else if (state.mousex >= 700 && state.mousex <= 760 && state.mousey >= 215 && state.mousey <= 330) {
+                            Mix_PlayChannel(-1, state.son, 0);
+                            state.t[state.nb] = 4;
+                            state.nb++;
+                        } else if (state.mousex >= 845 && state.mousex <= 920 && state.mousey >= 215 && state.mousey <= 320) {
+                            Mix_PlayChannel(-1, state.son, 0);
+                            state.t[state.nb] = 5;
+                            state.nb++;
+                        } else if (state.mousex >= 980 && state.mousex <= 1050 && state.mousey >= 215 && state.mousey <= 315) {
+                            Mix_PlayChannel(-1, state.son, 0);
+                            state.t[state.nb] = 6;
+                            state.nb++;
+                        }
+                    }
+                    break;
             }
         }
 
-        if (nb == 6) {
+        if (state.nb == 6) {
             test = 1;
             for (i = 0; i < 6; i++) {
-                if (t[i] != (*currentVictoire)[i]) {
+                if (state.t[i] != (*state.currentVictoire)[i]) {
                     test = 0;
                     break;
                 }
             }
 
             if (test) {
-            	fin_jeu = 1;
-                SDL_BlitSurface(saha, NULL, ecran, &positionroto);
-                nb_fail = 0;
-                if (hint) {
-                    SDL_FreeSurface(hint);
-                    hint = NULL;
+                state.fin_jeu = 1;
+                SDL_BlitSurface(state.saha, NULL, state.ecran, &state.positionroto);
+                state.nb_fail = 0;
+                if (state.hint) {
+                    SDL_FreeSurface(state.hint);
+                    state.hint = NULL;
                 }
             } else {
-                nb_fail++;
-                if (nb_fail >= 3 && !hint) {
-                    choicehint(hintText, *currentVictoire, difficulty);
-                    hint = TTF_RenderText_Solid(fontm, hintText, hintColor);
+                state.nb_fail++;
+                if (state.nb_fail >= 3 && !state.hint) {
+                    choicehint(&state);
+                    state.hint = TTF_RenderText_Solid(state.fontm, state.hintText, state.hintColor);
                 }
-                SDL_BlitSurface(faux, NULL, ecran, &positionroto);
-
-                SDL_BlitSurface(message, NULL, ecran, &positiontexte);
-                if (hint) {
-                    SDL_BlitSurface(hint, NULL, ecran, &positionhint);
+                SDL_BlitSurface(state.faux, NULL, state.ecran, &state.positionroto);
+                SDL_BlitSurface(state.message, NULL, state.ecran, &state.positiontexte);
+                if (state.hint) {
+                    SDL_BlitSurface(state.hint, NULL, state.ecran, &state.positionhint);
                 }
-                SDL_Flip(ecran);
+                SDL_Flip(state.ecran);
                 SDL_Delay(2000);
-                
-                resetGame(&nb, t);
-                fin_jeu = 0;
-                SDL_FreeSurface(message);
-                message = NULL;
+
+                resetGame(&state);
+                state.fin_jeu = 0;
+                if (state.message) SDL_FreeSurface(state.message);
+                state.message = NULL;
                 continue;
             }
         }
-        
-        if (message) {
-            SDL_BlitSurface(message, NULL, ecran, &positiontexte);
+
+        if (state.message) {
+            SDL_BlitSurface(state.message, NULL, state.ecran, &state.positiontexte);
         }
-        
-        SDL_Flip(ecran);
-        SDL_FreeSurface(message);
-        message = NULL;
-        
+
+        SDL_Flip(state.ecran);
+        if (state.message) SDL_FreeSurface(state.message);
+        state.message = NULL;
     }
 
-    SDL_FreeSurface(ecran);
-    SDL_FreeSurface(facile); 
-    SDL_FreeSurface(moyen); 
-    SDL_FreeSurface(difficile); 
-    SDL_FreeSurface(image);
-    SDL_FreeSurface(horloge0);
-    SDL_FreeSurface(horloge1);
-    SDL_FreeSurface(horloge2);
-    SDL_FreeSurface(horloge3);
-    SDL_FreeSurface(horloge4);
-    SDL_FreeSurface(horloge5);
-    SDL_FreeSurface(horloge6);
-    SDL_FreeSurface(horloge7);
-    SDL_FreeSurface(horloge8);
-    SDL_FreeSurface(difficultyMessage);
-    SDL_FreeSurface(rune1);
-    SDL_FreeSurface(rune2);
-    SDL_FreeSurface(rune3);
-    SDL_FreeSurface(rune4);
-    SDL_FreeSurface(rune5);
-    SDL_FreeSurface(rune6);
-    SDL_FreeSurface(saha);
-    SDL_FreeSurface(faux);
-    TTF_CloseFont(font);
-    TTF_CloseFont(fontm);
-    TTF_CloseFont(fontdiff);
-    Mix_FreeChunk(son);
+
+    SDL_FreeSurface(state.ecran);
+    SDL_FreeSurface(state.facile);
+    SDL_FreeSurface(state.moyen);
+    SDL_FreeSurface(state.difficile);
+    SDL_FreeSurface(state.image);
+    for (i = 0; i < 9; i++) {
+        SDL_FreeSurface(state.horloge[i]);
+    }
+    SDL_FreeSurface(state.difficultyMessage);
+    for (i = 0; i < 6; i++) {
+        SDL_FreeSurface(state.rune[i]);
+        SDL_FreeSurface(state.rune_hover[i]);
+    }
+    SDL_FreeSurface(state.saha);
+    SDL_FreeSurface(state.faux);
+    SDL_FreeSurface(state.temps);
+    TTF_CloseFont(state.font);
+    TTF_CloseFont(state.fontm);
+    TTF_CloseFont(state.fontdiff);
+    Mix_FreeChunk(state.son);
     TTF_Quit();
     SDL_Quit();
 
