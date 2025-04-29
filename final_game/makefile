@@ -1,6 +1,6 @@
 CC = gcc
-CFLAGS = -Wall -Wextra -O2 -g -std=c99 -I. $(shell sdl-config --cflags)
-LDFLAGS = $(shell sdl-config --libs) -lSDL_image -lSDL_ttf -lSDL_mixer -lm
+ CFLAGS = -Wall -Wextra -O2 -g -std=c99 -I. $(shell sdl-config --cflags)
+ LDFLAGS = $(shell sdl-config --libs) -lSDL_image -lSDL_ttf -lSDL_mixer -lm
 OBJS = game.o main.o
 TARGET = game
 DEPS = $(OBJS:.o=.d)

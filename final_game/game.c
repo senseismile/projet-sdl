@@ -212,51 +212,12 @@ void saveGame(Player* p, Background* bg, Platform platforms[], int platformCount
     if (!file) return;
     fwrite(p, sizeof(Player), 1, file);
     fwrite(bg, sizeof(Background), 1, file);
-    fwrite craving = (SDL_Surface*[]) {volume0, volume32, volume64, volume96, volume128, bouton, retour, bouton_hover};
-    for (int i = 0; i < 8; i++) SDL_FreeSurface(resizedImages[i]);
-    TTF_CloseFont(font);
-    TTF_CloseFont(font_retour);
-    Mix_FreeMusic(musique);
-    Mix_FreeChunk(clickSound);
-    Mix_CloseAudio();
-    TTF_Quit();
-    SDL_Quit();
-    return 0;
-}
-
-bool loadGame(Player* p, Background* bg, Platform platforms[], int* platformCount, Boss* boss, Enemy enemies[], int* enemiesRemaining) {
-    FILE* file = fopen("savegame.dat", "rb");
-    if (!file) {
-        fprintf(stderr, "Failed to open savegame.dat for reading\n");
-        return false;
-    }
-    if (fread(p, sizeof(Player), 1, file) != 1 ||
-        fread(bg, sizeof(Background), 1, file) != 1 ||
-        fread(platformCount, sizeof(int), 1, file) != 1 ||
-        fread(platforms, sizeof(Platform), *platformCount, file) != (size_t)*platformCount ||
-        fread(boss, sizeof(Boss), 1, file) != 1 ||
-        fread(enemies, sizeof(Enemy), MAX_ENEMIES, file) != MAX_ENEMIES ||
-        fread(enemiesRemaining, sizeof(int), 1, file) != 1) {
-        fprintf(stderr, "Failed to read savegame.dat\n");
-        fclose(file);
-        return false;
-    }
+    fwrite(&platformCount, sizeof(int), 1, file);
+    fwrite(platforms, sizeof(Platform), platformCount, file);
+    fwrite(boss, sizeof(Boss), 1, file);
+    fwrite(enemies, sizeof(Enemy), MAX_ENEMIES, file);
+    fwrite(&enemiesRemaining, sizeof(int), 1, file);
     fclose(file);
-    p->idle_sprite = player_idle_img;
-    memcpy(p->walk_sprites, player_walk_imgs, sizeof(player_walk_imgs));
-    p->attack_sprite = player_attack_img;
-    bg->img = background_img;
-    for (int i = 0; i < *platformCount; i++) {
-        platforms[i].image = platforms[i].isMoving ? moving_platform_img : static_platform_img;
-    }
-    boss->sprite = boss_img;
-    boss->attack_sprite = boss_attack_img;
-    for (int i = 0; i < MAX_ENEMIES; i++) {
-        enemies[i].sprite = enemies[i].isVertical ? vertical_enemy_img : boss_img;
-        enemies[i].attack_sprite = boss_attack_img;
-        enemies[i].vertical_sprite = enemies[i].isVertical ? vertical_enemy_img : boss_img;
-    }
-    return true;
 }
 
 void handleEvents(Player* p, bool* running, Background* bg, Platform platforms[], int* count, Boss* boss, Enemy enemies[], int* enemiesRemaining) {
@@ -467,469 +428,536 @@ void updateEnemyAI(Enemy* enemy, Player* p, Background* bg, bool* enemyIsAttacki
         } else if (enemy->isMoving && currentTime - enemy->lastMoveTime > ENEMY_MOVE_TIME) {
             enemy->isMoving = false;
             enemy->vx = 0;
-            enemy->last
             enemy->lastMoveTime = currentTime;
-        }
-        if (enemy->isMoving) {
+        } else if (enemy->isMoving) {
             enemy->vx = enemy->moveDirection * ENEMY_ROAM_SPEED;
         }
     }
+    enemy->pos.x += enemy->vx;
     if (enemy->isAttacking && currentTime - enemy->attackStartTime > ENEMY_ATTACK_DURATION) {
-        enemy->isAttacking = false;
+        enemy->isAttacking = *enemyIsAttacking = false;
         enemy->attackHitbox = (SDL_Rect){0, 0, 0, 0};
-    }
-    if (!enemy->isVertical) {
-        enemy->pos.x += enemy->vx;
     }
 }
 
 void resetGame(Player* p, Background* bg, Platform platforms[], int* platformCount, Boss* boss, Enemy enemies[], int* enemiesRemaining, Minimap* minimap) {
     initPlayer(p);
-    initBackground(bg);
+    initMinimap(minimap);
+    bg->cameraX = bg->score = 0;
+    bg->startTime = SDL_GetTicks();
+    bg->needsReset = bg->timeStopped = bg->qteActive = bg->paused = false;
+    bg->timeStopStart = bg->timeStopDuration = bg->timeStopPrep = bg->qteStartTime = 0;
     initPlatforms(platforms, platformCount, bg->width);
     initBoss(boss, bg->width);
     initEnemies(enemies, bg->width);
-    initMinimap(minimap);
     *enemiesRemaining = MAX_ENEMIES;
-    bg->state = GAME_STATE_PLAYING;
-    bg->needsReset = false;
     Mix_PlayMusic(background_music, -1);
 }
 
 void updateGame(Player* p, Platform platforms[], int* count, Background* bg, Boss* boss, Enemy enemies[], int* enemiesRemaining) {
+    if (bg->needsReset) {
+        Minimap minimap;
+        resetGame(p, bg, platforms, count, boss, enemies, enemiesRemaining, &minimap);
+        return;
+    }
     if (bg->state != GAME_STATE_PLAYING || bg->paused) return;
-    Uint32 currentTime = SDL_GetTicks();
-    bool enemyIsAttacking = false;
-
-    // Update player
-    float maxSpeed = p->isSprinting ? PLAYER_SPRINT_SPEED : PLAYER_SPEED;
-    p->vx += p->ax;
-    p->vx = CLAMP(p->vx * FRICTION, -maxSpeed, maxSpeed);
-    p->pos.x += (int)p->vx;
-    p->pos.x = CLAMP(p->pos.x, 0, bg->width - p->pos.w);
-
-    // Apply gravity
-    float gravity = (p->isJumping && p->vy < 0 && (currentTime - p->lastJumpTime < 150)) ? GRAVITY * JUMP_GRAVITY_SCALE : 
-                    (p->isJumping && p->vy < 0) ? GRAVITY * JUMP_PEAK_GRAVITY : GRAVITY;
-    p->vy += gravity;
-    p->pos.y += (int)p->vy;
-
-    // Platform collision
+    static bool enemyIsAttacking = false, wasTimeStopped = false;
+    int aliveEnemies = 0;
+    for (int i = 0; i < MAX_ENEMIES; i++) {
+        if (enemies[i].isActive && !enemies[i].isDead) aliveEnemies++;
+    }
+    *enemiesRemaining = aliveEnemies;
+    if (*enemiesRemaining <= 0 && !boss->shouldSpawn) boss->shouldSpawn = true;
+    if (!p->isJumping && !p->wasInAir) p->fallStartY = p->pos.y;
+    if (bg->timeStopped != wasTimeStopped) {
+        wasTimeStopped = bg->timeStopped;
+        bg->timeStopped ? Mix_PauseMusic() : Mix_ResumeMusic();
+    }
+    if (!bg->timeStopped || (bg->timeStopped && SDL_GetTicks() - bg->timeStopStart < UNSTOPPED_TIME)) {
+        p->vx += p->ax;
+        if (p->ax == 0) p->vx *= FRICTION;
+        if (fabs(p->vx) < 0.1f) p->vx = 0;
+        float maxSpeed = p->isSprinting ? PLAYER_SPRINT_SPEED : PLAYER_SPEED;
+        p->vx = CLAMP(p->vx, -maxSpeed, maxSpeed);
+        if (!bg->timeStopped) p->pos.x += p->vx;
+        p->vy += GRAVITY * (p->isJumping && p->vy > 0 ? JUMP_PEAK_GRAVITY : JUMP_GRAVITY_SCALE);
+        p->pos.y += p->vy;
+        p->isJumping = true;
+    }
+    if (p->pos.x + p->pos.w >= bg->width - LEVEL_END_MARGIN) {
+        bg->state = GAME_STATE_VICTORY;
+        p->vx = p->ax = 0;
+        return;
+    }
+    SDL_Rect playerWorldPos = {p->pos.x + (int)bg->cameraX, p->pos.y, p->pos.w, p->pos.h};
+    for (int j = 0; j < MAX_ENEMIES; j++) {
+        if (!enemies[j].isActive || enemies[j].isDead) continue;
+        SDL_Rect enemyWorldPos = {enemies[j].pos.x, enemies[j].pos.y, enemies[j].pos.w, enemies[j].pos.h};
+        if (checkCollision(playerWorldPos, enemyWorldPos)) {
+            int overlapX = MIN((playerWorldPos.x + playerWorldPos.w) - enemyWorldPos.x, (enemyWorldPos.x + enemyWorldPos.w) - playerWorldPos.x);
+            int overlapY = MIN((playerWorldPos.y + playerWorldPos.h) - enemyWorldPos.y, (enemyWorldPos.y + enemyWorldPos.h) - playerWorldPos.y);
+            if (overlapX < overlapY) {
+                p->pos.x = playerWorldPos.x < enemyWorldPos.x ? enemyWorldPos.x - p->pos.w - (int)bg->cameraX : enemyWorldPos.x + enemyWorldPos.w - (int)bg->cameraX;
+                p->vx = 0;
+            } else {
+                p->pos.y = playerWorldPos.y < enemyWorldPos.y ? enemyWorldPos.y - p->pos.h : enemyWorldPos.y + enemyWorldPos.h;
+                p->vy = 0;
+            }
+            if (!p->isInvincible) {
+                p->health -= ENEMY_COLLISION_DAMAGE;
+                p->isInvincible = true;
+                p->lastHitTime = SDL_GetTicks();
+            }
+        }
+        if (enemies[j].isAttacking && checkCollision((SDL_Rect){enemies[j].attackHitbox.x, enemies[j].attackHitbox.y, enemies[j].attackHitbox.w, enemies[j].attackHitbox.h}, playerWorldPos) && !p->isInvincible) {
+            p->health -= ENEMY_ATTACK_DAMAGE;
+            p->isInvincible = true;
+            p->lastHitTime = SDL_GetTicks();
+        }
+    }
+    if (boss->isActive) {
+        if (checkCollision(playerWorldPos, boss->pos)) {
+            p->pos.x = playerWorldPos.x < boss->pos.x ? boss->pos.x - p->pos.w - (int)bg->cameraX : boss->pos.x + boss->pos.w - (int)bg->cameraX;
+            p->vx = 0;
+            if (!p->isInvincible) {
+                p->health -= BOSS_ATTACK_DAMAGE;
+                p->isInvincible = true;
+                p->lastHitTime = SDL_GetTicks();
+            }
+        }
+        if (boss->isAttacking && checkCollision((SDL_Rect){boss->attackHitbox.x, boss->attackHitbox.y, boss->attackHitbox.w, boss->attackHitbox.h}, playerWorldPos) && !p->isInvincible) {
+            p->health -= BOSS_ATTACK_DAMAGE;
+            p->isInvincible = true;
+            p->lastHitTime = SDL_GetTicks();
+        }
+    }
+    bool wasOnPlatform = p->isOnMovingPlatform;
     p->isOnMovingPlatform = false;
-    for (int i = 0; i < *count; i++) {
-        if (!platforms[i].isActive) continue;
-        SDL_Rect platformRect = platforms[i].rect;
-        if (checkCollision(p->pos, platformRect)) {
-            if (p->vy > 0 && p->pos.y + p->pos.h - p->vy <= platformRect.y) {
+    for (int j = 0; j < *count; j++) {
+        if (!platforms[j].isActive) continue;
+        SDL_Rect platformRect = platforms[j].rect;
+        if (checkCollision(playerWorldPos, platformRect)) {
+            if (p->vy >= 0 && playerWorldPos.y + playerWorldPos.h >= platformRect.y && playerWorldPos.y + playerWorldPos.h <= platformRect.y + PLATFORM_COLLISION_MARGIN) {
+                if (!p->isOnMovingPlatform && p->wasInAir) {
+                    float fallDistance = p->pos.y - p->fallStartY;
+                    if (fallDistance > FALL_DAMAGE_THRESHOLD) {
+                        p->health -= (int)((fallDistance - FALL_DAMAGE_THRESHOLD) / FALL_DAMAGE_THRESHOLD * FALL_DAMAGE_MULTIPLIER);
+                        p->fallDamageTime = SDL_GetTicks();
+                        if (p->health <= 0) {
+                            p->lives--;
+                            if (p->lives <= 0) {
+                                bg->state = GAME_STATE_GAME_OVER;
+                            } else {
+                                p->health = PLAYER_HEALTH;
+                                p->pos.y = GROUND_PLATFORM_HEIGHT - p->pos.h;
+                                p->vy = 0;
+                                p->isJumping = false;
+                            }
+                        }
+                    }
+                }
                 p->pos.y = platformRect.y - p->pos.h;
                 p->vy = 0;
                 p->isJumping = false;
                 p->lastGroundY = p->pos.y;
-                if (platforms[i].isMoving) {
+                p->wasInAir = false;
+                if (platforms[j].isMoving) {
                     p->isOnMovingPlatform = true;
-                    p->movingPlatformId = i;
+                    p->movingPlatformId = j;
+                    if (wasOnPlatform && p->movingPlatformId == j) {
+                        p->pos.x += MOVING_PLATFORM_SPEED * platforms[j].moveDirection;
+                    }
                 }
-            } else if (p->vy < 0 && p->pos.y - p->vy >= platformRect.y + platformRect.h) {
-                p->pos.y = platformRect.y + platformRect.h;
-                p->vy = 0;
-            } else if (p->vx > 0 && p->pos.x + p->pos.w - p->vx <= platformRect.x) {
-                p->pos.x = platformRect.x - p->pos.w;
-                p->vx = 0;
-            } else if (p->vx < 0 && p->pos.x - p->vx >= platformRect.x + platformRect.w) {
-                p->pos.x = platformRect.x + platformRect.w;
+            } else if (playerWorldPos.y + playerWorldPos.h > platformRect.y + PLATFORM_COLLISION_MARGIN) {
+                p->pos.x = playerWorldPos.x < platformRect.x ? platformRect.x - p->pos.w : platformRect.x + platformRect.w;
                 p->vx = 0;
             }
         }
     }
-
-    // Moving platform movement
-    if (p->isOnMovingPlatform) {
-        Platform* plat = &platforms[p->movingPlatformId];
-        p->pos.x += plat->moveDirection * MOVING_PLATFORM_SPEED;
-        p->pos.x = CLAMP(p->pos.x, 0, bg->width - p->pos.w);
-    }
-
-    // Fall damage
-    if (!p->isJumping && p->pos.y > p->lastGroundY && p->wasInAir) {
-        float fallDistance = p->pos.y - p->fallStartY;
-        if (fallDistance > FALL_DAMAGE_THRESHOLD) {
-            int damage = (int)(fallDistance * FALL_DAMAGE_MULTIPLIER);
-            if (damage > 0 && !p->isInvincible) {
-                p->health -= damage;
-                p->fallDamageTime = currentTime;
-                p->isInvincible = true;
-                p->lastHitTime = currentTime;
-            }
-        }
-        p->wasInAir = false;
-    } else if (p->isJumping) {
-        p->fallStartY = p->pos.y;
-        p->wasInAir = true;
-    }
-
-    // Update invincibility
-    if (p->isInvincible && currentTime - p->lastHitTime > INVINCIBILITY_DURATION) {
-        p->isInvincible = false;
-    }
-
-    // Update attack
-    if (p->isAttacking && currentTime - p->attackStartTime > PLAYER_ATTACK_DURATION) {
-        p->isAttacking = false;
-        p->attackHitbox = (SDL_Rect){0, 0, 0, 0};
-    }
-
-    // Update platforms
-    for (int i = 0; i < *count; i++) {
-        if (!platforms[i].isMoving || !platforms[i].isActive) continue;
-        platforms[i].rect.x += platforms[i].moveDirection * MOVING_PLATFORM_SPEED;
-        if (platforms[i].rect.x <= platforms[i].originalX - platforms[i].moveDistance ||
-            platforms[i].rect.x >= platforms[i].originalX + platforms[i].moveDistance) {
-            platforms[i].moveDirection *= -1;
-        }
-        platforms[i].rect.x = CLAMP(platforms[i].rect.x, 0, bg->width - platforms[i].rect.w);
-    }
-
-    // Update boss
-    updateBossAI(boss, p, bg);
-    if (boss->isAttacking && checkCollision(p->pos, boss->attackHitbox) && !p->isInvincible) {
-        p->health -= BOSS_ATTACK_DAMAGE;
-        p->isInvincible = true;
-        p->lastHitTime = currentTime;
-        bg->score -= HIT_PENALTY;
-    }
-    if (p->isAttacking && checkCollision(boss->pos, p->attackHitbox) && boss->isActive) {
-        boss->health -= PLAYER_ATTACK_DAMAGE;
-        if (boss->health <= 0) {
-            boss->isActive = false;
-            bg->score += BOSS_KILL_SCORE;
-            bg->state = GAME_STATE_VICTORY;
-        }
-    }
-
-    // Update enemies
-    for (int i = 0; i < MAX_ENEMIES; i++) {
-        if (!enemies[i].isActive || enemies[i].isDead) continue;
-        updateEnemyAI(&enemies[i], p, bg, &enemyIsAttacking);
-        if (enemies[i].isAttacking && checkCollision(p->pos, enemies[i].attackHitbox) && !p->isInvincible) {
-            p->health -= ENEMY_ATTACK_DAMAGE;
-            p->isInvincible = true;
-            p->lastHitTime = currentTime;
-            bg->score -= HIT_PENALTY;
-        }
-        if (checkCollision(p->pos, enemies[i].pos) && !p->isInvincible && !enemies[i].isAttacking) {
-            p->health -= ENEMY_COLLISION_DAMAGE;
-            p->isInvincible = true;
-            p->lastHitTime = currentTime;
-            bg->score -= HIT_PENALTY;
-        }
-        if (p->isAttacking && checkCollision(enemies[i].pos, p->attackHitbox)) {
-            enemies[i].health -= PLAYER_ATTACK_DAMAGE;
-            if (enemies[i].health <= 0) {
-                enemies[i].isDead = true;
-                enemies[i].isActive = false;
-                (*enemiesRemaining)--;
-                bg->score += ENEMY_KILL_SCORE;
-            }
-        }
-    }
-
-    // Update camera
-    bg->cameraX = p->pos.x - SCREEN_WIDTH / 2;
-    bg->cameraX = CLAMP(bg->cameraX, 0, bg->width - SCREEN_WIDTH);
-    bg->lastCameraY = bg->cameraY;
-    bg->cameraY += (bg->targetCameraY - bg->cameraY) * 0.1f;
-    bg->cameraY = CLAMP(bg->cameraY, -MAX_CAMERA_SCROLL, 0);
-
-    // Check game over
-    if (p->health <= 0) {
+    if (p->pos.y > SCREEN_HEIGHT || p->health <= 0) {
         p->lives--;
         if (p->lives <= 0) {
             bg->state = GAME_STATE_GAME_OVER;
         } else {
             p->health = PLAYER_HEALTH;
-            p->pos.x = PLAYER_X_POSITION;
-            p->pos.y = p->lastGroundY;
-            p->vx = p->vy = 0;
-            bg->cameraX = 0;
+            p->pos.y = GROUND_PLATFORM_HEIGHT - p->pos.h;
+            p->vy = 0;
+            p->isJumping = false;
+            p->wasInAir = false;
+        }
+        bg->score = MAX(0, bg->score - 5);
+    }
+    if (p->isAttacking && SDL_GetTicks() - p->attackStartTime > PLAYER_ATTACK_DURATION) {
+        p->isAttacking = false;
+        p->attackHitbox = (SDL_Rect){0, 0, 0, 0};
+    }
+    if (p->isInvincible && SDL_GetTicks() - p->lastHitTime > INVINCIBILITY_DURATION) {
+        p->isInvincible = false;
+    }
+    if (p->isWalking && SDL_GetTicks() - p->last_frame_time > WALK_ANIMATION_DELAY) {
+        p->current_walk_frame = (p->current_walk_frame + 1) % WALK_ANIMATION_FRAMES;
+        p->last_frame_time = SDL_GetTicks();
+    }
+    int playerWorldX = p->pos.x + bg->cameraX;
+    bg->cameraX = CLAMP(playerWorldX - SCREEN_WIDTH / 2, 0, bg->width - SCREEN_WIDTH);
+    int playerY = p->pos.y;
+    bg->targetCameraY = playerY < SCREEN_HEIGHT / 3 ? SCREEN_HEIGHT / 3 - playerY : 0;
+    bg->cameraY += (bg->targetCameraY - bg->cameraY) * 0.1f;
+    bg->cameraY = CLAMP(bg->cameraY, -MAX_CAMERA_SCROLL, 0);
+    p->pos.x = playerWorldX - bg->cameraX;
+    for (int i = 0; i < *count; i++) {
+        if (platforms[i].isMoving && platforms[i].isActive && !bg->timeStopped) {
+            platforms[i].rect.x += MOVING_PLATFORM_SPEED * platforms[i].moveDirection;
+            if (abs(platforms[i].rect.x - platforms[i].originalX) > platforms[i].moveDistance) {
+                platforms[i].moveDirection *= -1;
+            }
         }
     }
-
-    // Animation
-    if (p->isWalking && !p->isAttacking && !p->isJumping) {
-        if (currentTime - p->last_frame_time >= WALK_ANIMATION_DELAY) {
-            p->current_walk_frame = (p->current_walk_frame + 1) % WALK_ANIMATION_FRAMES;
-            p->last_frame_time = currentTime;
-        }
-    } else {
-        p->current_walk_frame = 0;
-    }
-}
-
-void renderGame(Player* p, Background* bg, Platform platforms[], int count, Boss* boss, Enemy enemies[], int enemiesRemaining, Minimap* minimap) {
-    SDL_FillRect(screen, NULL, SDL_MapRGB(screen->format, 0, 0, 0));
-    SDL_Rect bgRect = {-(int)bg->cameraX, -(int)bg->cameraY, bg->img->w, bg->img->h};
-    SDL_BlitSurface(bg->img, NULL, screen, &bgRect);
-
-    // Render platforms
-    for (int i = 0; i < count; i++) {
-        if (!platforms[i].isActive) continue;
-        SDL_Rect platformRect = {platforms[i].rect.x - (int)bg->cameraX, platforms[i].rect.y - (int)bg->cameraY, platforms[i].rect.w, platforms[i].rect.h};
-        SDL_BlitSurface(platforms[i].image, NULL, screen, &platformRect);
-    }
-
-    // Render enemies
+    updateBossAI(boss, p, bg);
     for (int i = 0; i < MAX_ENEMIES; i++) {
         if (!enemies[i].isActive || enemies[i].isDead) continue;
-        SDL_Surface* sprite = enemies[i].isAttacking ? enemies[i].attack_sprite : (enemies[i].isVertical ? enemies[i].vertical_sprite : enemies[i].sprite);
-        SDL_Rect enemyRect = {enemies[i].pos.x - (int)bg->cameraX, enemies[i].pos.y - (int)bg->cameraY, enemies[i].pos.w, enemies[i].pos.h};
-        if (enemies[i].facingLeft) {
-            SDL_Surface* flipped = flipSurface(sprite);
-            SDL_BlitSurface(flipped, NULL, screen, &enemyRect);
-            SDL_FreeSurface(flipped);
-        } else {
-            SDL_BlitSurface(sprite, NULL, screen, &enemyRect);
+        updateEnemyAI(&enemies[i], p, bg, &enemyIsAttacking);
+        if (enemies[i].pos.y > SCREEN_HEIGHT + 100) enemies[i].isDead = true;
+    }
+    if (p->isAttacking) {
+        SDL_Rect attackWorldPos = {p->attackHitbox.x + (int)bg->cameraX, p->attackHitbox.y, p->attackHitbox.w, p->attackHitbox.h};
+        if (checkCollision(attackWorldPos, boss->pos)) {
+            boss->health -= PLAYER_ATTACK_DAMAGE;
+            if (boss->health <= 0) {
+                bg->score += BOSS_KILL_SCORE;
+                bg->state = GAME_STATE_VICTORY;
+            }
+        }
+        for (int j = 0; j < MAX_ENEMIES; j++) {
+            if (enemies[j].isActive && !enemies[j].isDead && checkCollision(attackWorldPos, enemies[j].pos)) {
+                enemies[j].health -= PLAYER_ATTACK_DAMAGE;
+                if (enemies[j].health <= 0) {
+                    enemies[j].isDead = true;
+                    bg->score += ENEMY_KILL_SCORE;
+                }
+            }
         }
     }
-
-    // Render boss
-    if (boss->isActive) {
-        SDL_Surface* sprite = boss->isAttacking ? boss->attack_sprite : boss->sprite;
-        SDL_Rect bossRect = {boss->pos.x - (int)bg->cameraX, boss->pos.y - (int)bg->cameraY, boss->pos.w, boss->pos.h};
-        if (boss->facingLeft) {
-            SDL_Surface* flipped = flipSurface(sprite);
-            SDL_BlitSurface(flipped, NULL, screen, &bossRect);
-            SDL_FreeSurface(flipped);
-        } else {
-            SDL_BlitSurface(sprite, NULL, screen, &bossRect);
+    if (checkCollision(playerWorldPos, boss->pos) && p->vy > 0) {
+        boss->health -= PLAYER_ATTACK_DAMAGE * 2;
+        p->vy = JUMP_FORCE / 2;
+        if (boss->health <= 0) {
+            bg->score += BOSS_KILL_SCORE;
+            bg->state = GAME_STATE_VICTORY;
         }
-    }
-
-    // Render player
-    SDL_Surface* playerSprite = p->isAttacking ? p->attack_sprite : (p->isWalking ? p->walk_sprites[p->current_walk_frame] : p->idle_sprite);
-    SDL_Rect playerRect = {p->pos.x - (int)bg->cameraX, p->pos.y - (int)bg->cameraY, p->pos.w, p->pos.h};
-    if (!p->facingRight) {
-        SDL_Surface* flipped = flipSurface(playerSprite);
-        SDL_BlitSurface(flipped, NULL, screen, &playerRect);
-        SDL_FreeSurface(flipped);
-    } else {
-        SDL_BlitSurface(playerSprite, NULL, screen, &playerRect);
-    }
-
-    // Render fall effect
-    if (p->fallDamageTime && SDL_GetTicks() - p->fallDamageTime < FALL_DAMAGE_EFFECT_DURATION) {
-        SDL_Rect fallRect = {p->pos.x - (int)bg->cameraX, p->pos.y - (int)bg->cameraY + p->pos.h, fall_effect_img->w, fall_effect_img->h};
-        SDL_BlitSurface(fall_effect_img, NULL, screen, &fallRect);
-    }
-
-    // Render UI
-    renderTimer(bg);
-    renderHealthBars(p, boss, bg);
-    renderEnemyCounter(enemiesRemaining);
-    renderScore(bg);
-    renderLives(p);
-    renderMinimap(minimap, p, bg, platforms, count, boss, enemies);
-    renderEnemyWarning(bg);
-    renderPauseButton(bg);
-
-    if (bg->paused) {
-        SDL_Rect saveRect = {SCREEN_WIDTH/2 - save_button_img->w/2, SCREEN_HEIGHT/2 - save_button_img->h - 10, save_button_img->w, save_button_img->h};
-        SDL_Rect resumeRect = {SCREEN_WIDTH/2 - resume_button_img->w/2, SCREEN_HEIGHT/2 + 10, resume_button_img->w, resume_button_img->h};
-        SDL_BlitSurface(save_button_img, NULL, screen, &saveRect);
-        SDL_BlitSurface(resume_button_img, NULL, screen, &resumeRect);
-    }
-
-    if (bg->state == GAME_STATE_GAME_OVER || bg->state == GAME_STATE_VICTORY) {
-        renderEndMessage(bg);
-    }
-
-    SDL_Flip(screen);
-}
-
-void renderTimer(Background* bg) {
-    if (bg->state != GAME_STATE_PLAYING) return;
-    Uint32 elapsed = (SDL_GetTicks() - bg->startTime) / 1000;
-    char timeStr[20];
-    snprintf(timeStr, sizeof(timeStr), "Time: %02d:%02d", elapsed / 60, elapsed % 60);
-    SDL_Surface* text = TTF_RenderText_Solid(font, timeStr, (SDL_Color){255, 255, 255, 255});
-    if (text) {
-        SDL_BlitSurface(text, NULL, screen, &(SDL_Rect){TIMER_POS_X, TIMER_POS_Y, text->w, text->h});
-        SDL_FreeSurface(text);
-    }
-}
-
-void renderHealthBars(Player* p, Boss* boss, Background* bg) {
-    if (bg->state != GAME_STATE_PLAYING) return;
-    SDL_Rect playerHealthBar = {TIMER_POS_X, TIMER_POS_Y + 30, p->health * 2, 10};
-    SDL_FillRect(screen, &playerHealthBar, SDL_MapRGB(screen->format, 0, 255, 0));
-    if (boss->isActive) {
-        SDL_Rect bossHealthBar = {SCREEN_WIDTH - BOSS_HEALTH - 10, 10, boss->health / 2, 10};
-        SDL_FillRect(screen, &bossHealthBar, SDL_MapRGB(screen->format, 255, 0, 0));
-    }
-}
-
-void renderEnemyCounter(int enemiesRemaining) {
-    char enemyStr[20];
-    snprintf(enemyStr, sizeof(enemyStr), "Enemies: %d", enemiesRemaining);
-    SDL_Surface* text = TTF_RenderText_Solid(font, enemyStr, (SDL_Color){255, 255, 255, 255});
-    if (text) {
-        SDL_BlitSurface(text, NULL, screen, &(SDL_Rect){SCREEN_WIDTH - 100, 30, text->w, text->h});
-        SDL_FreeSurface(text);
-    }
-}
-
-void renderPauseButton(Background* bg) {
-    if (bg->state != GAME_STATE_PLAYING) return;
-    SDL_Rect pauseRect = {SCREEN_WIDTH - pause_img->w - 10, 40, pause_img->w, pause_img->h};
-    SDL_BlitSurface(pause_img, NULL, screen, &pauseRect);
-}
-
-void renderEndMessage(Background* bg) {
-    const char* message = bg->state == GAME_STATE_GAME_OVER ? "Game Over! Press R to Retry" : "Victory! Press R to Restart";
-    SDL_Surface* text = TTF_RenderText_Solid(font, message, (SDL_Color){255, 255, 255, 255});
-    if (text) {
-        SDL_BlitSurface(text, NULL, screen, &(SDL_Rect){SCREEN_WIDTH/2 - text->w/2, SCREEN_HEIGHT/2, text->w, text->h});
-        SDL_FreeSurface(text);
-    }
-}
-
-void renderMinimap(Minimap* minimap, Player* p, Background* bg, Platform platforms[], int platformCount, Boss* boss, Enemy enemies[]) {
-    if (!minimap->enabled) return;
-    SDL_FillRect(screen, &minimap->position, SDL_MapRGB(screen->format, minimap->backgroundColor.r, minimap->backgroundColor.g, minimap->backgroundColor.b));
-    SDL_Rect frameRect = {minimap->position.x, minimap->position.y, minimap->position.w, minimap->position.h};
-    SDL_FillRect(screen, &frameRect, SDL_MapRGB(screen->format, minimap->frameColor.r, minimap->frameColor.g, minimap->frameColor.b));
-    SDL_Rect innerRect = {minimap->position.x + 6, minimap->position.y + 6, minimap->position.w - 12, minimap->position.h - 12};
-    SDL_FillRect(screen, &innerRect, SDL_MapRGB(screen->format, minimap->backgroundColor.r, minimap->backgroundColor.g, minimap->backgroundColor.b));
-
-    // Render platforms
-    for (int i = 0; i < platformCount; i++) {
-        if (!platforms[i].isActive) continue;
-        SDL_Rect platRect = {
-            minimap->position.x + 6 + (int)(platforms[i].rect.x * minimap->scale),
-            minimap->position.y + 6 + (int)(platforms[i].rect.y * minimap->scale),
-            (int)(platforms[i].rect.w * minimap->scale),
-            (int)(platforms[i].rect.h * minimap->scale)
-        };
-        SDL_Color color = platforms[i].isMoving ? minimap->movingPlatformColor : minimap->platformColor;
-        SDL_FillRect(screen, &platRect, SDL_MapRGB(screen->format, color.r, color.g, color.b));
-    }
-
-    // Render enemies
-    for (int i = 0; i < MAX_ENEMIES; i++) {
-        if (!enemies[i].isActive || enemies[i].isDead) continue;
-        SDL_Rect enemyRect = {
-            minimap->position.x + 6 + (int)(enemies[i].pos.x * minimap->scale),
-            minimap->position.y + 6 + (int)(enemies[i].pos.y * minimap->scale),
-            (int)(enemies[i].pos.w * minimap->scale),
-            (int)(enemies[i].pos.h * minimap->scale)
-        };
-        SDL_FillRect(screen, &enemyRect, SDL_MapRGB(screen->format, minimap->enemyColor.r, minimap->enemyColor.g, minimap->enemyColor.b));
-    }
-
-    // Render boss
-    if (boss->isActive) {
-        SDL_Rect bossRect = {
-            minimap->position.x + 6 + (int)(boss->pos.x * minimap->scale),
-            minimap->position.y + 6 + (int)(boss->pos.y * minimap->scale),
-            (int)(boss->pos.w * minimap->scale),
-            (int)(boss->pos.h * minimap->scale)
-        };
-        SDL_FillRect(screen, &bossRect, SDL_MapRGB(screen->format, minimap->bossColor.r, minimap->bossColor.g, minimap->bossColor.b));
-    }
-
-    // Render player
-    SDL_Rect playerRect = {
-        minimap->position.x + 6 + (int)(p->pos.x * minimap->scale),
-        minimap->position.y + 6 + (int)(p->pos.y * minimap->scale),
-        (int)(p->pos.w * minimap->scale),
-        (int)(p->pos.h * minimap->scale)
-    };
-    SDL_FillRect(screen, &playerRect, SDL_MapRGB(screen->format, minimap->playerColor.r, minimap->playerColor.g, minimap->playerColor.b));
-}
-
-void renderScore(Background* bg) {
-    char scoreStr[20];
-    snprintf(scoreStr, sizeof(scoreStr), "Score: %d", bg->score);
-    SDL_Surface* text = TTF_RenderText_Solid(font, scoreStr, (SDL_Color){255, 255, 255, 255});
-    if (text) {
-        SDL_BlitSurface(text, NULL, screen, &(SDL_Rect){SCORE_POS_X, SCORE_POS_Y, text->w, text->h});
-        SDL_FreeSurface(text);
-    }
-}
-
-void renderLives(Player* p) {
-    char livesStr[20];
-    snprintf(livesStr, sizeof(lives dieną
-
-System: You are Grok 3 built by xAI.
-
-It looks like the response was cut off. I'll continue from where the `game.c` file left off in the `renderLives` function and complete the remaining functions, ensuring the integration of the menu system from `menuv1` with the game logic from `final game`. The goal is to ensure that the "Load Game" button in `saveMenu` loads the game state from `savegame.dat` and launches the game, using the provided `menu.h`, `menu.c`, and `main.c` as the basis for the menu system. I'll also provide the `Makefile` to compile the project.
-
-### game.c (Continued)
-The following completes the `game.c` file, starting from the `renderLives` function.
-
-```c
-    snprintf(livesStr, sizeof(livesStr), "Lives: %d", p->lives);
-    SDL_Surface* text = TTF_RenderText_Solid(font, livesStr, (SDL_Color){255, 255, 255, 255});
-    if (text) {
-        SDL_BlitSurface(text, NULL, screen, &(SDL_Rect){TIMER_POS_X, TIMER_POS_Y + 50, text->w, text->h});
-        SDL_FreeSurface(text);
     }
 }
 
 void renderEnemyWarning(Background* bg) {
-    if (bg->qteActive) {
-        SDL_Surface* text = TTF_RenderText_Solid(font, "Press X to counter!", (SDL_Color){255, 0, 0, 255});
-        if (text) {
-            SDL_BlitSurface(text, NULL, screen, &(SDL_Rect){SCREEN_WIDTH/2 - text->w/2, SCREEN_HEIGHT/4, text->w, text->h});
-            SDL_FreeSurface(text);
+    if (!font || !screen || bg->state != GAME_STATE_PLAYING) return;
+    SDL_Surface* warningSurface = TTF_RenderText_Solid(font, "Enemy Nearby!", (SDL_Color){255, 0, 0, 255});
+    if (warningSurface) {
+        SDL_BlitSurface(warningSurface, NULL, screen, &(SDL_Rect){SCREEN_WIDTH/2 - warningSurface->w/2, 50, warningSurface->w, warningSurface->h});
+        SDL_FreeSurface(warningSurface);
+    }
+}
+
+void renderTimer(Background* bg) {
+    if (!font || !screen || bg->state == GAME_STATE_MENU) return;
+    Uint32 elapsedTime = ((bg->timeStopped ? bg->timeStopStart : SDL_GetTicks()) - bg->startTime) / 1000;
+    char timeText[20];
+    snprintf(timeText, sizeof(timeText), "%02d:%02d", elapsedTime / 60, elapsedTime % 60);
+    SDL_Surface* textSurface = TTF_RenderText_Solid(font, timeText, (SDL_Color){255, 255, 255, 255});
+    if (textSurface) {
+        SDL_BlitSurface(textSurface, NULL, screen, &(SDL_Rect){TIMER_POS_X, TIMER_POS_Y, textSurface->w, textSurface->h});
+        SDL_FreeSurface(textSurface);
+    }
+}
+
+void renderScore(Background* bg) {
+    if (!font || !screen || bg->state == GAME_STATE_MENU) return;
+    char scoreText[50];
+    snprintf(scoreText, sizeof(scoreText), "Score: %d", bg->score);
+    SDL_Surface* textSurface = TTF_RenderText_Solid(font, scoreText, (SDL_Color){255, 255, 255, 255});
+    if (textSurface) {
+        SDL_BlitSurface(textSurface, NULL, screen, &(SDL_Rect){SCORE_POS_X - 342, SCORE_POS_Y + 100, textSurface->w, textSurface->h});
+        SDL_FreeSurface(textSurface);
+    }
+}
+
+void renderLives(Player* p) {
+    if (!font || !screen) return;
+    char livesText[20];
+    snprintf(livesText, sizeof(livesText), "Lives: %d", p->lives);
+    SDL_Surface* textSurface = TTF_RenderText_Solid(font, livesText, (SDL_Color){0, 255, 0, 255});
+    if (textSurface) {
+        SDL_BlitSurface(textSurface, NULL, screen, &(SDL_Rect){10, 70, textSurface->w, textSurface->h});
+        SDL_FreeSurface(textSurface);
+    }
+}
+
+void renderHealthBars(Player* p, Boss* boss, Background* bg) {
+    if (!screen || bg->state == GAME_STATE_MENU) return;
+    SDL_FillRect(screen, &(SDL_Rect){10, 40, 100, 10}, SDL_MapRGB(screen->format, 255, 0, 0));
+    SDL_FillRect(screen, &(SDL_Rect){10, 40, (int)(100 * ((float)p->health / PLAYER_HEALTH)), 10}, SDL_MapRGB(screen->format, 0, 255, 0));
+    if (boss->isActive) {
+        SDL_Rect bossScreenPos = {boss->pos.x - (int)bg->cameraX, boss->pos.y, boss->pos.w, boss->pos.h};
+        if (bossScreenPos.x + boss->pos.w > 0 && bossScreenPos.x < SCREEN_WIDTH) {
+            SDL_FillRect(screen, &(SDL_Rect){bossScreenPos.x, bossScreenPos.y - 10, BOSS_WIDTH, 5}, SDL_MapRGB(screen->format, 255, 0, 0));
+            SDL_FillRect(screen, &(SDL_Rect){bossScreenPos.x, bossScreenPos.y - 10, (int)(BOSS_WIDTH * ((float)boss->health / BOSS_HEALTH)), 5}, SDL_MapRGB(screen->format, 255, 255, 0));
         }
     }
+}
+
+void renderEnemyCounter(int enemiesRemaining) {
+    if (!font || !screen) return;
+    char enemyText[50];
+    snprintf(enemyText, sizeof(enemyText), enemiesRemaining > 0 ? "Enemies Left: %d" : "Head to the boss!", enemiesRemaining);
+    SDL_Surface* textSurface = TTF_RenderText_Solid(font, enemyText, (SDL_Color){255, 255, 255, 255});
+    if (textSurface) {
+        SDL_BlitSurface(textSurface, NULL, screen, &(SDL_Rect){SCREEN_WIDTH - textSurface->w - 10, 10, textSurface->w, textSurface->h});
+        SDL_FreeSurface(textSurface);
+    }
+}
+
+void renderPauseButton(Background* bg) {
+    if (!pause_img || !screen || bg->state != GAME_STATE_PLAYING) return;
+    SDL_BlitSurface(pause_img, NULL, screen, &(SDL_Rect){SCREEN_WIDTH - pause_img->w - 10, 40, pause_img->w, pause_img->h});
+    if (bg->paused) {
+        SDL_BlitSurface(save_button_img, NULL, screen, &(SDL_Rect){SCREEN_WIDTH/2 - save_button_img->w/2, SCREEN_HEIGHT/2 - save_button_img->h - 10, save_button_img->w, save_button_img->h});
+        SDL_BlitSurface(resume_button_img, NULL, screen, &(SDL_Rect){SCREEN_WIDTH/2 - resume_button_img->w/2, SCREEN_HEIGHT/2 + 10, resume_button_img->w, resume_button_img->h});
+    }
+}
+
+void renderEndMessage(Background* bg) {
+    if (!font || !screen || (bg->state != GAME_STATE_GAME_OVER && bg->state != GAME_STATE_VICTORY)) return;
+    char message[100];
+    snprintf(message, sizeof(message), bg->state == GAME_STATE_VICTORY ? "VICTORY! Score: %d\nPress R to restart" : "GAME OVER! Score: %d\nPress R to restart", bg->score);
+    char* line1 = strtok(message, "\n"), *line2 = strtok(NULL, "\n");
+    if (line1) {
+        SDL_Surface* textSurface1 = TTF_RenderText_Solid(font, line1, bg->state == GAME_STATE_VICTORY ? (SDL_Color){0, 255, 0, 255} : (SDL_Color){255, 0, 0, 255});
+        if (textSurface1) {
+            SDL_BlitSurface(textSurface1, NULL, screen, &(SDL_Rect){SCREEN_WIDTH/2 - textSurface1->w/2, SCREEN_HEIGHT/2 - textSurface1->h - 10, textSurface1->w, textSurface1->h});
+            SDL_FreeSurface(textSurface1);
+        }
+    }
+    if (line2) {
+        SDL_Surface* textSurface2 = TTF_RenderText_Solid(font, line2, (SDL_Color){255, 255, 255, 255});
+        if (textSurface2) {
+            SDL_BlitSurface(textSurface2, NULL, screen, &(SDL_Rect){SCREEN_WIDTH/2 - textSurface2->w/2, SCREEN_HEIGHT/2 + 10, textSurface2->w, textSurface2->h});
+            SDL_FreeSurface(textSurface2);
+        }
+    }
+}
+
+void renderMenu(Background* bg) {
+    if (!font || !screen) return;
+    SDL_FillRect(screen, NULL, SDL_MapRGB(screen->format, 0, 0, 0));
+    TTF_Font* titleFont = TTF_OpenFont("arial.ttf", 48);
+    if (titleFont) {
+        SDL_Surface* titleSurface = TTF_RenderText_Solid(titleFont, "PLATFORM ADVENTURE", (SDL_Color){255, 255, 0, 255});
+        if (titleSurface) {
+            SDL_BlitSurface(titleSurface, NULL, screen, &(SDL_Rect){SCREEN_WIDTH/2 - titleSurface->w/2, SCREEN_HEIGHT/3 - titleSurface->h/2, titleSurface->w, titleSurface->h});
+            SDL_FreeSurface(titleSurface);
+        }
+        TTF_CloseFont(titleFont);
+    }
+    SDL_Surface* instruction1 = TTF_RenderText_Solid(font, "Arrow Keys to Move, Space to Attack", (SDL_Color){255, 255, 255, 255});
+    SDL_Surface* instruction2 = TTF_RenderText_Solid(font, "Press Enter to Start", (SDL_Color){255, 255, 0, 255});
+    if (instruction1 && instruction2) {
+        SDL_BlitSurface(instruction1, NULL, screen, &(SDL_Rect){SCREEN_WIDTH/2 - instruction1->w/2, SCREEN_HEIGHT/2, instruction1->w, instruction1->h});
+        SDL_BlitSurface(instruction2, NULL, screen, &(SDL_Rect){SCREEN_WIDTH/2 - instruction2->w/2, SCREEN_HEIGHT/2 + 40, instruction2->w, instruction2->h});
+        SDL_FreeSurface(instruction1);
+        SDL_FreeSurface(instruction2);
+    }
+}
+
+void renderMinimap(Minimap* minimap, Player* p, Background* bg, Platform platforms[], int platformCount, Boss* boss, Enemy enemies[]) {
+    if (!minimap->enabled || !screen || !bg->img || bg->state != GAME_STATE_PLAYING) return;
+    minimap->surface = SDL_CreateRGBSurface(SDL_SWSURFACE, minimap->width, minimap->height, screen->format->BitsPerPixel, 0, 0, 0, 0);
+    minimap->frame = SDL_CreateRGBSurface(SDL_SWSURFACE, minimap->width + 12, minimap->height + 12, screen->format->BitsPerPixel, 0, 0, 0, 0);
+    if (!minimap->surface || !minimap->frame) return;
+    SDL_FillRect(minimap->frame, NULL, SDL_MapRGB(screen->format, minimap->frameColor.r, minimap->frameColor.g, minimap->frameColor.b));
+    SDL_FillRect(minimap->frame, &(SDL_Rect){2, 2, minimap->width + 8, minimap->height + 8}, SDL_MapRGB(screen->format, 255, 50, 50));
+    SDL_FillRect(minimap->frame, &(SDL_Rect){6, 6, minimap->width, minimap->height}, SDL_MapRGB(minimap->frame->format, minimap->backgroundColor.r, minimap->backgroundColor.g, minimap->backgroundColor.b));
+    SDL_Surface* minimapBg = SDL_CreateRGBSurface(SDL_SWSURFACE, minimap->width, minimap->height, screen->format->BitsPerPixel, 0, 0, 0, 0);
+    if (minimapBg) {
+        SDL_BlitSurface(bg->img, &(SDL_Rect){(int)bg->cameraX, 0, minimap->width / minimap->scale, minimap->height / minimap->scale}, 
+                        minimapBg, &(SDL_Rect){0, 0, minimap->width, minimap->height});
+        SDL_BlitSurface(minimapBg, NULL, minimap->surface, NULL);
+        SDL_FreeSurface(minimapBg);
+    }
+    for (int i = 0; i < platformCount; i++) {
+        if (!platforms[i].isActive) continue;
+        SDL_FillRect(minimap->surface, &(SDL_Rect){(int)(platforms[i].rect.x * minimap->scale) - (int)(bg->cameraX * minimap->scale), 
+                                                  (int)(platforms[i].rect.y * minimap->scale), 
+                                                  (int)(platforms[i].rect.w * minimap->scale), 
+                                                  (int)(platforms[i].rect.h * minimap->scale)}, 
+                     platforms[i].isMoving ? SDL_MapRGB(minimap->surface->format, minimap->movingPlatformColor.r, minimap->movingPlatformColor.g, minimap->movingPlatformColor.b) : 
+                                            SDL_MapRGB(minimap->surface->format, minimap->platformColor.r, minimap->platformColor.g, minimap->platformColor.b));
+    }
+    for (int i = 0; i < MAX_ENEMIES; i++) {
+        if (!enemies[i].isActive || enemies[i].isDead) continue;
+        SDL_FillRect(minimap->surface, &(SDL_Rect){(int)(enemies[i].pos.x * minimap->scale) - (int)(bg->cameraX * minimap->scale), 
+                                                  (int)(enemies[i].pos.y * minimap->scale) + 5, 6, 6}, 
+                     SDL_MapRGB(minimap->surface->format, minimap->enemyColor.r, minimap->enemyColor.g, minimap->enemyColor.b));
+    }
+    if (boss->isActive || boss->shouldSpawn) {
+        SDL_FillRect(minimap->surface, &(SDL_Rect){(int)(boss->pos.x * minimap->scale) - (int)(bg->cameraX * minimap->scale), 
+                                                  (int)(boss->pos.y * minimap->scale) + 5, 6, 6}, 
+                     SDL_MapRGB(minimap->surface->format, minimap->bossColor.r, minimap->bossColor.g, minimap->bossColor.b));
+    }
+    SDL_FillRect(minimap->surface, &(SDL_Rect){(int)(p->pos.x * minimap->scale), (int)(p->pos.y * minimap->scale) + 5, 6, 6}, 
+                 SDL_MapRGB(minimap->surface->format, minimap->playerColor.r, minimap->playerColor.g, minimap->playerColor.b));
+    SDL_BlitSurface(minimap->surface, NULL, minimap->frame, &(SDL_Rect){6, 6, minimap->width, minimap->height});
+    SDL_BlitSurface(minimap->frame, NULL, screen, &minimap->position);
+    SDL_FreeSurface(minimap->surface);
+    SDL_FreeSurface(minimap->frame);
+}
+
+void renderGame(Player* p, Background* bg, Platform platforms[], int count, Boss* boss, Enemy enemies[], int enemiesRemaining, Minimap* minimap) {
+    if (!screen) return;
+    SDL_FillRect(screen, NULL, SDL_MapRGB(screen->format, 50, 50, 100));
+    if (bg->state == GAME_STATE_MENU) {
+        renderMenu(bg);
+        SDL_Flip(screen);
+        return;
+    }
+    if (!bg->img) return;
+    SDL_Rect src_rect = {(int)bg->cameraX, (int)-bg->cameraY, MIN(SCREEN_WIDTH, bg->width - (int)bg->cameraX), SCREEN_HEIGHT};
+    SDL_Rect dest_rect = {0, 0, src_rect.w, SCREEN_HEIGHT};
+    SDL_Surface* stretched_bg = SDL_CreateRGBSurface(SDL_SWSURFACE, src_rect.w, SCREEN_HEIGHT, screen->format->BitsPerPixel, 0, 0, 0, 0);
+    if (stretched_bg) {
+        for (int y = 0; y < SCREEN_HEIGHT; y++) {
+            SDL_BlitSurface(bg->img, &(SDL_Rect){src_rect.x, (y * bg->img->h) / SCREEN_HEIGHT, src_rect.w, 1}, 
+                            stretched_bg, &(SDL_Rect){0, y, src_rect.w, 1});
+        }
+        SDL_BlitSurface(stretched_bg, NULL, screen, &dest_rect);
+        SDL_FreeSurface(stretched_bg);
+    }
+    if (src_rect.w < SCREEN_WIDTH) {
+        SDL_FillRect(screen, &(SDL_Rect){src_rect.w, 0, SCREEN_WIDTH - src_rect.w, SCREEN_HEIGHT}, SDL_MapRGB(screen->format, 50, 50, 100));
+    }
+    for (int i = 0; i < count; i++) {
+        if (!platforms[i].isActive || !platforms[i].image) continue;
+        int platformScreenX = platforms[i].rect.x - (int)bg->cameraX;
+        if (platformScreenX + platforms[i].rect.w > 0 && platformScreenX < SCREEN_WIDTH) {
+            SDL_Rect r = {platformScreenX, platforms[i].rect.y - (int)bg->cameraY, platforms[i].rect.w, platforms[i].rect.h};
+            int tiles = (r.w + platforms[i].image->w - 1) / platforms[i].image->w;
+            for (int t = 0; t < tiles; t++) {
+                SDL_BlitSurface(platforms[i].image, NULL, screen, &(SDL_Rect){r.x + t * platforms[i].image->w, r.y, 
+                                        MIN(platforms[i].image->w, r.w - t * platforms[i].image->w), r.h});
+            }
+        }
+    }
+    for (int i = 0; i < MAX_ENEMIES; i++) {
+        if (!enemies[i].isActive || enemies[i].isDead) continue;
+        SDL_Rect enemyScreenPos = {enemies[i].pos.x - (int)bg->cameraX, enemies[i].pos.y, enemies[i].pos.w, enemies[i].pos.h};
+        if (enemyScreenPos.x + enemies[i].pos.w > 0 && enemyScreenPos.x < SCREEN_WIDTH) {
+            SDL_Surface* enemySprite = enemies[i].isVertical ? enemies[i].vertical_sprite : enemies[i].sprite;
+            SDL_BlitSurface(enemySprite, NULL, screen, &enemyScreenPos);
+            if (enemies[i].isAttacking) {
+                SDL_Surface* attackSprite = enemies[i].facingLeft ? flipSurface(enemies[i].attack_sprite) : enemies[i].attack_sprite;
+                if (attackSprite) {
+                    SDL_BlitSurface(attackSprite, NULL, screen, &(SDL_Rect){enemies[i].attackHitbox.x - (int)bg->cameraX - 120, 
+                                    enemies[i].attackHitbox.y - 100, enemies[i].attackHitbox.w, enemies[i].attackHitbox.h});
+                    if (enemies[i].facingLeft) SDL_FreeSurface(attackSprite);
+                }
+            }
+            SDL_FillRect(screen, &(SDL_Rect){enemyScreenPos.x, enemyScreenPos.y - 10, enemies[i].pos.w, 3}, SDL_MapRGB(screen->format, 255, 0, 0));
+            SDL_FillRect(screen, &(SDL_Rect){enemyScreenPos.x, enemyScreenPos.y - 10, (int)(enemies[i].pos.w * ((float)enemies[i].health / ENEMY_HEALTH)), 3}, 
+                         SDL_MapRGB(screen->format, 0, 255, 0));
+        }
+    }
+    if (bg->qteActive && SDL_GetTicks() - bg->qteStartTime <= QTE_DURATION) {
+        SDL_Surface* qteSurface = TTF_RenderText_Solid(font, "Press X to Negate", (SDL_Color){255, 255, 255, 255});
+        if (qteSurface) {
+            SDL_BlitSurface(qteSurface, NULL, screen, &(SDL_Rect){SCREEN_WIDTH/2 - qteSurface->w/2, SCREEN_HEIGHT/2 - qteSurface->h - 50, qteSurface->w, qteSurface->h});
+            SDL_FreeSurface(qteSurface);
+        }
+    }
+    if (boss->shouldSpawn) {
+        SDL_Rect bossScreenPos = {boss->pos.x - (int)bg->cameraX, boss->pos.y, boss->pos.w, boss->pos.h};
+        if (bossScreenPos.x + boss->pos.w > 0 && bossScreenPos.x < SCREEN_WIDTH) {
+            SDL_BlitSurface(boss->sprite, NULL, screen, &bossScreenPos);
+            if (boss->isAttacking) {
+                SDL_Surface* attackSprite = boss->facingLeft ? flipSurface(boss->attack_sprite) : boss->attack_sprite;
+                if (attackSprite) {
+                    SDL_BlitSurface(attackSprite, NULL, screen, &(SDL_Rect){boss->attackHitbox.x - (int)bg->cameraX - 120, 
+                                    boss->attackHitbox.y - 100, boss->attackHitbox.w, boss->attackHitbox.h});
+                    if (boss->facingLeft) SDL_FreeSurface(attackSprite);
+                }
+            }
+        }
+    }
+    if (!p->isInvincible || (SDL_GetTicks() / 100) % 2 == 0) {
+        SDL_Surface* currentSprite = p->isWalking && p->vx != 0 ? p->walk_sprites[p->current_walk_frame] : p->idle_sprite;
+        SDL_Surface* renderSprite = p->facingRight ? currentSprite : flipSurface(currentSprite);
+        if (renderSprite) {
+            SDL_BlitSurface(renderSprite, NULL, screen, &p->pos);
+            if (!p->facingRight) SDL_FreeSurface(renderSprite);
+        }
+    }
+    if (p->isAttacking && p->attack_sprite) {
+        SDL_Surface* attackSprite = p->facingRight ? p->attack_sprite : flipSurface(p->attack_sprite);
+        if (attackSprite) {
+            SDL_BlitSurface(attackSprite, NULL, screen, &(SDL_Rect){p->pos.x + (p->facingRight ? p->pos.w : -p->attack_sprite->w), 
+                            p->pos.y + (p->pos.h/2 - p->attack_sprite->h/2), p->attack_sprite->w, p->attack_sprite->h});
+            if (!p->facingRight) SDL_FreeSurface(attackSprite);
+        }
+    }
+    if (SDL_GetTicks() - p->fallDamageTime < FALL_DAMAGE_EFFECT_DURATION) {
+        SDL_BlitSurface(fall_effect_img, NULL, screen, &(SDL_Rect){0, -210, 800, 600});
+    }
+    renderTimer(bg);
+    renderScore(bg);
+    renderHealthBars(p, boss, bg);
+    renderLives(p);
+    renderEnemyCounter(enemiesRemaining);
+    renderPauseButton(bg);
+    renderEndMessage(bg);
+    renderMinimap(minimap, p, bg, platforms, count, boss, enemies);
+    if (bg->timeStopped) {
+        SDL_Surface* effectSurface = SDL_CreateRGBSurface(SDL_SWSURFACE, SCREEN_WIDTH, SCREEN_HEIGHT, screen->format->BitsPerPixel, 0, 0, 0, 0);
+        if (effectSurface) {
+            SDL_BlitSurface(screen, NULL, effectSurface, NULL);
+            if (SDL_MUSTLOCK(effectSurface)) SDL_LockSurface(effectSurface);
+            Uint8* pixels = (Uint8*)effectSurface->pixels;
+            int pitch = effectSurface->pitch, bytesPerPixel = effectSurface->format->BytesPerPixel;
+            float flicker = 0.8f + 0.2f * sinf((SDL_GetTicks() - bg->timeStopStart) / 200.0f);
+            for (int y = 0; y < SCREEN_HEIGHT; y++) {
+                for (int x = 0; x < SCREEN_WIDTH; x++) {
+                    Uint32 pixel = *(Uint32*)(pixels + y * pitch + x * bytesPerPixel);
+                    Uint8 r, g, b;
+                    SDL_GetRGB(pixel, effectSurface->format, &r, &g, &b);
+                    r = (Uint8)(r * 0.5 + (128 * flicker) * 0.5);
+                    g = (Uint8)(g * 0.5 + (128 * flicker) * 0.5);
+                    b = (Uint8)(b * 0.5 + (128 * flicker) * 0.5);
+                    *(Uint32*)(pixels + y * pitch + x * bytesPerPixel) = SDL_MapRGB(effectSurface->format, r, g, b);
+                }
+            }
+            if (SDL_MUSTLOCK(effectSurface)) SDL_UnlockSurface(effectSurface);
+            SDL_BlitSurface(effectSurface, NULL, screen, NULL);
+            SDL_FreeSurface(effectSurface);
+        }
+    }
+    SDL_Flip(screen);
 }
 
 void cleanUp(Player* p, Background* bg, Boss* boss, Minimap* minimap) {
-    if (screen) SDL_FreeSurface(screen);
-    if (font) TTF_CloseFont(font);
-    if (static_platform_img) SDL_FreeSurface(static_platform_img);
-    if (moving_platform_img) SDL_FreeSurface(moving_platform_img);
-    if (boss_img) SDL_FreeSurface(boss_img);
-    if (boss_attack_img) SDL_FreeSurface(boss_attack_img);
-    if (player_idle_img) SDL_FreeSurface(player_idle_img);
-    for (int i = 0; i < WALK_ANIMATION_FRAMES; i++) {
-        if (player_walk_imgs[i]) SDL_FreeSurface(player_walk_imgs[i]);
-    }
-    if (player_attack_img) SDL_FreeSurface(player_attack_img);
-    if (background_img) SDL_FreeSurface(background_img);
-    if (vertical_enemy_img) SDL_FreeSurface(vertical_enemy_img);
-    if (fall_effect_img) SDL_FreeSurface(fall_effect_img);
-    if (pause_img) SDL_FreeSurface(pause_img);
-    if (save_button_img) SDL_FreeSurface(save_button_img);
-    if (resume_button_img) SDL_FreeSurface(resume_button_img);
-    if (stop_sound) Mix_FreeChunk(stop_sound);
-    if (pause_sound) Mix_FreeChunk(pause_sound);
-    if (background_music) Mix_FreeMusic(background_music);
+    SDL_FreeSurface(static_platform_img);
+    SDL_FreeSurface(moving_platform_img);
+    SDL_FreeSurface(boss_img);
+    SDL_FreeSurface(boss_attack_img);
+    SDL_FreeSurface(player_idle_img);
+    for (int i = 0; i < WALK_ANIMATION_FRAMES; i++) SDL_FreeSurface(player_walk_imgs[i]);
+    SDL_FreeSurface(player_attack_img);
+    SDL_FreeSurface(background_img);
+    SDL_FreeSurface(vertical_enemy_img);
+    SDL_FreeSurface(fall_effect_img);
+    SDL_FreeSurface(pause_img);
+    SDL_FreeSurface(save_button_img);
+    SDL_FreeSurface(resume_button_img);
+    Mix_FreeChunk(stop_sound);
+    Mix_FreeChunk(pause_sound);
+    Mix_FreeMusic(background_music);
+    TTF_CloseFont(font);
     Mix_CloseAudio();
     TTF_Quit();
     SDL_Quit();
-}
-
-int runGame(Player* player, Background* background, Platform platforms[], int* platformCount, Boss* boss, Enemy enemies[], int* enemiesRemaining, Minimap* minimap, bool loadSaved) {
-    bool running = true;
-    if (loadSaved && !loadGame(player, background, platforms, platformCount, boss, enemies, enemiesRemaining)) {
-        fprintf(stderr, "Failed to load saved game, starting new game\n");
-        resetGame(player, background, platforms, platformCount, boss, enemies, enemiesRemaining, minimap);
-    } else if (!loadSaved) {
-        resetGame(player, background, platforms, platformCount, boss, enemies, enemiesRemaining, minimap);
-    }
-    Uint32 lastTime = SDL_GetTicks();
-    while (running) {
-        Uint32 currentTime = SDL_GetTicks();
-        if (currentTime - lastTime >= FRAME_DELAY) {
-            handleEvents(player, &running, background, platforms, platformCount, boss, enemies, enemiesRemaining);
-            updateGame(player, platforms, platformCount, background, boss, enemies, enemiesRemaining);
-            renderGame(player, background, platforms, *platformCount, boss, enemies, *enemiesRemaining, minimap);
-            lastTime = currentTime;
-        }
-        SDL_Delay(1);
-    }
-    return background->state == GAME_STATE_VICTORY ? 1 : 0;
 }

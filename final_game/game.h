@@ -20,8 +20,8 @@
 #endif
 #define CLAMP(x, low, high) (((x) > (high)) ? (high) : (((x) < (low)) ? (low) : (x)))
 
-#define SCREEN_WIDTH 1024
-#define SCREEN_HEIGHT 768
+#define SCREEN_WIDTH 800
+#define SCREEN_HEIGHT 600
 #define FPS 60
 #define FRAME_DELAY (1000/FPS)
 
@@ -34,7 +34,7 @@
 #define JUMP_GRAVITY_SCALE 0.7f
 #define JUMP_PEAK_GRAVITY 1.5f
 #define PLAYER_X_POSITION 200
-#define GROUND_PLATFORM_HEIGHT 700
+#define GROUND_PLATFORM_HEIGHT 550
 #define PLAYER_HEALTH 50
 #define PLAYER_LIVES 3
 #define PLAYER_ATTACK_DAMAGE 5
@@ -277,7 +277,5 @@ void updateBossAI(Boss* boss, Player* player, Background* bg);
 void updateEnemyAI(Enemy* enemy, Player* p, Background* bg, bool* enemyIsAttacking);
 void resetGame(Player* p, Background* bg, Platform platforms[], int* platformCount, Boss* boss, Enemy enemies[], int* enemiesRemaining, Minimap* minimap);
 void saveGame(Player* p, Background* bg, Platform platforms[], int platformCount, Boss* boss, Enemy enemies[], int enemiesRemaining);
-bool loadGame(Player* p, Background* bg, Platform platforms[], int* platformCount, Boss* boss, Enemy enemies[], int* enemiesRemaining);
-int runGame(Player* player, Background* background, Platform platforms[], int* platformCount, Boss* boss, Enemy enemies[], int* enemiesRemaining, Minimap* minimap, bool loadSaved);
 
 #endif
