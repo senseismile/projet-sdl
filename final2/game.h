@@ -106,21 +106,6 @@ typedef enum {
     GAME_STATE_VICTORY
 } GameState;
 
-typedef struct {
-    SDLKey left;
-    SDLKey right;
-    SDLKey jump;
-    SDLKey attack;
-    SDLKey sprint;
-    SDLKey qte;
-} ControlConfig;
-
-typedef struct {
-    char* idle_sprite;
-    char* walk_sprites[WALK_ANIMATION_FRAMES];
-    char* attack_sprite;
-} CharacterConfig;
-
 extern SDL_Surface* screen;
 extern TTF_Font* font;
 extern SDL_Surface* static_platform_img;
@@ -130,9 +115,6 @@ extern SDL_Surface* boss_attack_img;
 extern SDL_Surface* player_idle_img;
 extern SDL_Surface* player_walk_imgs[WALK_ANIMATION_FRAMES];
 extern SDL_Surface* player_attack_img;
-extern SDL_Surface* player_idle_img2;
-extern SDL_Surface* player_walk_imgs2[WALK_ANIMATION_FRAMES];
-extern SDL_Surface* player_attack_img2;
 extern SDL_Surface* background_img;
 extern SDL_Surface* vertical_enemy_img;
 extern SDL_Surface* fall_effect_img;
@@ -270,14 +252,14 @@ bool checkCollision(SDL_Rect a, SDL_Rect b);
 bool checkPixelPerfectCollision(SDL_Surface* src, SDL_Rect src_rect, SDL_Surface* dst, SDL_Rect dst_rect);
 SDL_Surface* flipSurface(SDL_Surface* surface);
 void initSDL();
-void loadResources(int character_id);
-void initPlayer(Player* p, int character_id);
+void loadResources();
+void initPlayer(Player* p);
 void initBackground(Background* bg);
 void initPlatforms(Platform platforms[], int* count, int worldWidth);
 void initBoss(Boss* boss, int worldWidth);
 void initEnemies(Enemy enemies[], int worldWidth);
 void initMinimap(Minimap* minimap);
-void handleEvents(Player* p, bool* running, Background* bg, Platform platforms[], int* count, Boss* boss, Enemy enemies[], int* enemiesRemaining, ControlConfig* controls);
+void handleEvents(Player* p, bool* running, Background* bg, Platform platforms[], int* count, Boss* boss, Enemy enemies[], int* enemiesRemaining);
 void updateGame(Player* p, Platform platforms[], int* count, Background* bg, Boss* boss, Enemy enemies[], int* enemiesRemaining);
 void renderGame(Player* p, Background* bg, Platform platforms[], int count, Boss* boss, Enemy enemies[], int enemiesRemaining, Minimap* minimap);
 void renderTimer(Background* bg);
@@ -293,9 +275,8 @@ void renderEnemyWarning(Background* bg);
 void cleanUp(Player* p, Background* bg, Boss* boss, Minimap* minimap);
 void updateBossAI(Boss* boss, Player* player, Background* bg);
 void updateEnemyAI(Enemy* enemy, Player* p, Background* bg, bool* enemyIsAttacking);
-void resetGame(Player* p, Background* bg, Platform platforms[], int* platformCount, Boss* boss, Enemy enemies[], int* enemiesRemaining, Minimap* minimap, int character_id);
+void resetGame(Player* p, Background* bg, Platform platforms[], int* platformCount, Boss* boss, Enemy enemies[], int* enemiesRemaining, Minimap* minimap);
 void saveGame(Player* p, Background* bg, Platform platforms[], int platformCount, Boss* boss, Enemy enemies[], int enemiesRemaining);
-bool loadGame(Player* p, Background* bg, Platform platforms[], int* platformCount, Boss* boss, Enemy enemies[], int* enemiesRemaining, int character_id);
-bool loadConfig(ControlConfig* controls, int* character_id);
+bool loadGame(Player* p, Background* bg, Platform platforms[], int* platformCount, Boss* boss, Enemy enemies[], int* enemiesRemaining);
 
 #endif

@@ -1,24 +1,31 @@
-CC = gcc
-CFLAGS = -Wall -O2
-LDFLAGS = -lSDL -lSDL_image -lSDL_ttf -lSDL_mixer
-SOURCES = main.c game.c
-OBJECTS = $(SOURCES:.c=.o)
-EXEC = game
-MENU_SRC = menu.c
-MENU_EXEC = menu
+ CC = gcc
+ CFLAGS = -Wall -Wextra -O2 -g -std=c99 -I. $(shell sdl-config --cflags) -DSAVE_PATH="../menu/savegame.dat"
+ LDFLAGS = $(shell sdl-config --libs) -lSDL_image -lSDL_ttf -lSDL_mixer -lm
+ OBJS = game.o main.o
+ TARGET = game
+ DEPS = $(OBJS:.o=.d)
 
-all: $(EXEC) $(MENU_EXEC)
+all: $(TARGET)
+    @echo "Build complete: $(TARGET)"
 
-$(EXEC): $(OBJECTS)
-	$(CC) $(OBJECTS) -o $(EXEC) $(LDFLAGS)
-
-$(MENU_EXEC): $(MENU_SRC)
-	$(CC) $(MENU_SRC) -o $(MENU_EXEC) $(CFLAGS) $(LDFLAGS)
+$(TARGET): $(OBJS)
+	@echo "Linking $@"
+	$(CC) -o $@ $(OBJS) $(LDFLAGS)
 
 %.o: %.c
-	$(CC) -c $< -o $@ $(CFLAGS)
+	@echo "Compiling $<"
+	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
 
 clean:
-	rm -f $(OBJECTS) $(EXEC) $(MENU_EXEC)
+	@echo "Cleaning up"
+	rm -f $(TARGET) $(OBJS) $(DEPS)
 
-.PHONY: all clean
+rebuild: clean all
+
+run: $(TARGET)
+	@echo "Running $(TARGET)"
+	./$(TARGET)
+
+.PHONY: all clean rebuild run
+
+-include $(DEPS)
