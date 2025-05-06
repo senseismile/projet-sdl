@@ -6,6 +6,7 @@
 #include <SDL/SDL_ttf.h>
 #include <SDL/SDL_mixer.h>
 #include <stdbool.h>
+#include <errno.h>
 #include <math.h>
 #include <time.h>
 #include <stdlib.h>
@@ -99,6 +100,17 @@
 #define LEVEL_END_MARGIN 100
 #define MAX_CAMERA_SCROLL 200
 
+#define PIT_WIDTH 100
+#define PIT_HEIGHT 50
+#define MAX_PITS 5
+#define PIT_ENEMY_HEALTH 30
+#define PIT_ENEMY_DAMAGE 15
+#define MAX_ROCKS 10
+#define ROCK_WIDTH 30
+#define ROCK_HEIGHT 30
+#define ROCK_DAMAGE 10
+#define ROCK_SPAWN_INTERVAL 3000
+
 typedef enum {
     GAME_STATE_MENU,
     GAME_STATE_PLAYING,
@@ -108,6 +120,7 @@ typedef enum {
 
 extern SDL_Surface* screen;
 extern TTF_Font* font;
+extern SDL_Surface* ground_platform_img;
 extern SDL_Surface* static_platform_img;
 extern SDL_Surface* moving_platform_img;
 extern SDL_Surface* boss_img;
@@ -121,6 +134,8 @@ extern SDL_Surface* fall_effect_img;
 extern SDL_Surface* pause_img;
 extern SDL_Surface* save_button_img;
 extern SDL_Surface* resume_button_img;
+extern SDL_Surface* pit_enemy_img;
+extern SDL_Surface* rock_img;
 extern Mix_Chunk* stop_sound;
 extern Mix_Chunk* pause_sound;
 extern Mix_Music* background_music;
@@ -207,6 +222,27 @@ typedef struct {
 } Platform;
 
 typedef struct {
+    SDL_Rect rect;
+    SDL_Surface* image;
+    bool isActive;
+} Pit;
+
+typedef struct {
+    SDL_Rect pos;
+    SDL_Surface* sprite;
+    int health;
+    bool isActive;
+} PitEnemy;
+
+typedef struct {
+    SDL_Rect pos;
+    SDL_Surface* sprite;
+    float vy;
+    bool isActive;
+    Uint32 spawnTime;
+} Rock;
+
+typedef struct {
     SDL_Surface* sprite;
     SDL_Surface* attack_sprite;
     SDL_Rect pos;
@@ -256,12 +292,15 @@ void loadResources();
 void initPlayer(Player* p);
 void initBackground(Background* bg);
 void initPlatforms(Platform platforms[], int* count, int worldWidth);
+void initPits(Pit pits[], int* count, int worldWidth);
+void initPitEnemies(PitEnemy enemies[], Pit pits[], int pitCount);
+void initRocks(Rock rocks[], int worldWidth);
 void initBoss(Boss* boss, int worldWidth);
 void initEnemies(Enemy enemies[], int worldWidth);
 void initMinimap(Minimap* minimap);
 void handleEvents(Player* p, bool* running, Background* bg, Platform platforms[], int* count, Boss* boss, Enemy enemies[], int* enemiesRemaining);
-void updateGame(Player* p, Platform platforms[], int* count, Background* bg, Boss* boss, Enemy enemies[], int* enemiesRemaining);
-void renderGame(Player* p, Background* bg, Platform platforms[], int count, Boss* boss, Enemy enemies[], int enemiesRemaining, Minimap* minimap);
+void updateGame(Player* p, Platform platforms[], int* count, Background* bg, Boss* boss, Enemy enemies[], int* enemiesRemaining, Pit pits[], int pitCount, PitEnemy pitEnemies[], Rock rocks[]);
+void renderGame(Player* p, Background* bg, Platform platforms[], int count, Boss* boss, Enemy enemies[], int enemiesRemaining, Minimap* minimap, Pit pits[], int pitCount, PitEnemy pitEnemies[], Rock rocks[]);
 void renderTimer(Background* bg);
 void renderHealthBars(Player* p, Boss* boss, Background* bg);
 void renderEnemyCounter(int enemiesRemaining);
@@ -275,7 +314,9 @@ void renderEnemyWarning(Background* bg);
 void cleanUp(Player* p, Background* bg, Boss* boss, Minimap* minimap);
 void updateBossAI(Boss* boss, Player* player, Background* bg);
 void updateEnemyAI(Enemy* enemy, Player* p, Background* bg, bool* enemyIsAttacking);
-void resetGame(Player* p, Background* bg, Platform platforms[], int* platformCount, Boss* boss, Enemy enemies[], int* enemiesRemaining, Minimap* minimap);
+void updatePitEnemies(PitEnemy enemies[], int count, Player* p, Background* bg);
+void updateRocks(Rock rocks[], int count, Player* p, Background* bg);
+void resetGame(Player* p, Background* bg, Platform platforms[], int* platformCount, Boss* boss, Enemy enemies[], int* enemiesRemaining, Minimap* minimap, Pit pits[], int* pitCount, PitEnemy pitEnemies[], Rock rocks[]);
 void saveGame(Player* p, Background* bg, Platform platforms[], int platformCount, Boss* boss, Enemy enemies[], int enemiesRemaining);
 bool loadGame(Player* p, Background* bg, Platform platforms[], int* platformCount, Boss* boss, Enemy enemies[], int* enemiesRemaining);
 

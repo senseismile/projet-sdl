@@ -1,17 +1,8 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <stdbool.h>
-#include <time.h>
-#include <string.h>
-#include <errno.h> // Add this line
-#include <SDL/SDL.h>
-#include <SDL/SDL_image.h>
-#include <SDL/SDL_ttf.h>
-#include <SDL/SDL_mixer.h>
 #include "game.h"
 
 SDL_Surface* screen = NULL;
 TTF_Font* font = NULL;
+SDL_Surface* ground_platform_img = NULL;
 SDL_Surface* static_platform_img = NULL;
 SDL_Surface* moving_platform_img = NULL;
 SDL_Surface* boss_img = NULL;
@@ -25,6 +16,8 @@ SDL_Surface* fall_effect_img = NULL;
 SDL_Surface* pause_img = NULL;
 SDL_Surface* save_button_img = NULL;
 SDL_Surface* resume_button_img = NULL;
+SDL_Surface* pit_enemy_img = NULL;
+SDL_Surface* rock_img = NULL;
 Mix_Chunk* stop_sound = NULL;
 Mix_Chunk* pause_sound = NULL;
 Mix_Music* background_music = NULL;
@@ -53,38 +46,15 @@ bool checkPixelPerfectCollision(SDL_Surface* src, SDL_Rect src_rect, SDL_Surface
 }
 
 SDL_Surface* flipSurface(SDL_Surface* surface) {
-    if (!surface) {
-        fprintf(stderr, "flipSurface: Input surface is NULL\n");
-        return NULL;
-    }
-
-    // Create a new surface with the same format as the original
+    if (!surface) return NULL;
     SDL_Surface* flipped = SDL_ConvertSurface(surface, surface->format, surface->flags);
-    if (!flipped) {
-        fprintf(stderr, "Failed to create flipped surface: %s\n", SDL_GetError());
-        return NULL;
-    }
-
-    // Copy color key and alpha settings
-    if (surface->flags & SDL_SRCCOLORKEY) {
-        SDL_SetColorKey(flipped, SDL_SRCCOLORKEY, surface->format->colorkey);
-    }
-    if (surface->flags & SDL_SRCALPHA) {
-        SDL_SetAlpha(flipped, SDL_SRCALPHA, surface->format->alpha);
-    }
-
-    // Lock surfaces if needed
+    if (!flipped) return NULL;
+    if (surface->flags & SDL_SRCCOLORKEY) SDL_SetColorKey(flipped, SDL_SRCCOLORKEY, surface->format->colorkey);
+    if (surface->flags & SDL_SRCALPHA) SDL_SetAlpha(flipped, SDL_SRCALPHA, surface->format->alpha);
     if (SDL_MUSTLOCK(surface)) SDL_LockSurface(surface);
     if (SDL_MUSTLOCK(flipped)) SDL_LockSurface(flipped);
-
-    // Get surface information
-    int width = surface->w;
-    int height = surface->h;
-    int bpp = surface->format->BytesPerPixel;
-    int src_pitch = surface->pitch;
-    int dst_pitch = flipped->pitch;
-
-    // Flip the surface horizontally
+    int width = surface->w, height = surface->h, bpp = surface->format->BytesPerPixel;
+    int src_pitch = surface->pitch, dst_pitch = flipped->pitch;
     for (int y = 0; y < height; y++) {
         Uint8* src_row = (Uint8*)surface->pixels + y * src_pitch;
         Uint8* dst_row = (Uint8*)flipped->pixels + y * dst_pitch;
@@ -94,37 +64,29 @@ SDL_Surface* flipSurface(SDL_Surface* surface) {
             memcpy(dst_pixel, src_pixel, bpp);
         }
     }
-
-    // Unlock surfaces
     if (SDL_MUSTLOCK(surface)) SDL_UnlockSurface(surface);
     if (SDL_MUSTLOCK(flipped)) SDL_UnlockSurface(flipped);
-
     return flipped;
 }
 
 void initSDL() {
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0 || TTF_Init() < 0 || Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 2048) < 0) {
-        fprintf(stderr, "Initialization failed: %s\n", SDL_GetError());
-        exit(1);
-    }
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0 || TTF_Init() < 0 || Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 2048) < 0) exit(1);
     screen = SDL_SetVideoMode(SCREEN_WIDTH, SCREEN_HEIGHT, 32, SDL_HWSURFACE | SDL_DOUBLEBUF);
-    if (!screen) {
-        fprintf(stderr, "Video mode failed: %s\n", SDL_GetError());
-        TTF_Quit();
-        SDL_Quit();
-        exit(1);
-    }
+    if (!screen) exit(1);
     SDL_WM_SetCaption("Enhanced Platform Game", NULL);
     srand((unsigned int)time(NULL));
 }
 
 void loadResources() {
     font = TTF_OpenFont("arial.ttf", 24);
+    ground_platform_img = IMG_Load("ground_platform.png");
     static_platform_img = IMG_Load("platform_static.png");
     moving_platform_img = IMG_Load("platform_moving.png");
     boss_img = IMG_Load("boss.png");
     boss_attack_img = IMG_Load("boss_attack.png");
     player_idle_img = IMG_Load("idle.png");
+    pit_enemy_img = IMG_Load("pit_enemy.png");
+    rock_img = IMG_Load("rock.png");
     char filename[20];
     for (int i = 0; i < WALK_ANIMATION_FRAMES; i++) {
         snprintf(filename, sizeof(filename), "pwalk%d.png", i+1);
@@ -140,24 +102,14 @@ void loadResources() {
     stop_sound = Mix_LoadWAV("stop.wav");
     pause_sound = Mix_LoadWAV("pause.wav");
     background_music = Mix_LoadMUS("mapost1.wav");
-    if (!font || !static_platform_img || !moving_platform_img || !boss_img || !boss_attack_img || 
+    if (!font || !ground_platform_img || !static_platform_img || !moving_platform_img || !boss_img || !boss_attack_img || 
         !player_idle_img || !player_attack_img || !background_img || !fall_effect_img || !pause_img || 
-        !save_button_img || !resume_button_img || !stop_sound || !pause_sound || !background_music) {
-        fprintf(stderr, "Resource load failed: %s\n", IMG_GetError());
-        exit(1);
-    }
-    for (int i = 0; i < WALK_ANIMATION_FRAMES; i++) {
-        if (!player_walk_imgs[i]) {
-            fprintf(stderr, "Walk frame %d load failed\n", i+1);
-            exit(1);
-        }
-    }
+        !save_button_img || !resume_button_img || !stop_sound || !pause_sound || !background_music || !pit_enemy_img || !rock_img) exit(1);
+    for (int i = 0; i < WALK_ANIMATION_FRAMES; i++) if (!player_walk_imgs[i]) exit(1);
     if (!vertical_enemy_img) vertical_enemy_img = boss_img;
     SDL_SetColorKey(player_idle_img, SDL_SRCCOLORKEY, SDL_MapRGB(player_idle_img->format, 0, 0, 0));
     SDL_SetColorKey(player_attack_img, SDL_SRCCOLORKEY, SDL_MapRGB(player_attack_img->format, 0, 0, 0));
-    for (int i = 0; i < WALK_ANIMATION_FRAMES; i++) {
-        SDL_SetColorKey(player_walk_imgs[i], SDL_SRCCOLORKEY, SDL_MapRGB(player_walk_imgs[i]->format, 0, 0, 0));
-    }
+    for (int i = 0; i < WALK_ANIMATION_FRAMES; i++) SDL_SetColorKey(player_walk_imgs[i], SDL_SRCCOLORKEY, SDL_MapRGB(player_walk_imgs[i]->format, 0, 0, 0));
 }
 
 void initPlayer(Player* p) {
@@ -183,7 +135,7 @@ void initBackground(Background* bg) {
 void initPlatforms(Platform platforms[], int* count, int worldWidth) {
     memset(platforms, 0, sizeof(Platform) * MAX_PLATFORMS);
     int platformCount = 0;
-    platforms[platformCount++] = (Platform){{0, GROUND_PLATFORM_HEIGHT, worldWidth, PLATFORM_HEIGHT}, static_platform_img, false, true, false, 0, 0, 0};
+    platforms[platformCount++] = (Platform){{0, GROUND_PLATFORM_HEIGHT, worldWidth, PLATFORM_HEIGHT}, ground_platform_img, false, true, false, 0, 0, 0};
     int currentX = 0, lastY = GROUND_PLATFORM_HEIGHT;
     while (platformCount < MAX_PLATFORMS && currentX < worldWidth - END_MARGIN) {
         int spacing = MIN_PLATFORM_SPACING + rand() % (MAX_PLATFORM_SPACING - MIN_PLATFORM_SPACING);
@@ -203,8 +155,44 @@ void initPlatforms(Platform platforms[], int* count, int worldWidth) {
     *count = platformCount;
 }
 
+void initPits(Pit pits[], int* count, int worldWidth) {
+    memset(pits, 0, sizeof(Pit) * MAX_PITS);
+    int pitCount = 0;
+    for (int i = 0; i < MAX_PITS && pitCount < MAX_PITS; i++) {
+        int x = 500 + i * 600;
+        if (x + PIT_WIDTH < worldWidth) {
+            pits[pitCount++] = (Pit){{x, GROUND_PLATFORM_HEIGHT, PIT_WIDTH, PIT_HEIGHT}, NULL, true};
+        }
+    }
+    *count = pitCount;
+}
+
+void initPitEnemies(PitEnemy enemies[], Pit pits[], int pitCount) {
+    memset(enemies, 0, sizeof(PitEnemy) * MAX_PITS);
+    for (int i = 0; i < pitCount; i++) {
+        enemies[i] = (PitEnemy){
+            {pits[i].rect.x + pits[i].rect.w/2 - 25, pits[i].rect.y + pits[i].rect.h, 50, 50},
+            pit_enemy_img,
+            PIT_ENEMY_HEALTH,
+            true
+        };
+    }
+}
+
+void initRocks(Rock rocks[], int worldWidth) {
+    memset(rocks, 0, sizeof(Rock) * MAX_ROCKS);
+    for (int i = 0; i < MAX_ROCKS; i++) {
+        rocks[i] = (Rock){
+            {300 + i * 400, -ROCK_HEIGHT, ROCK_WIDTH, ROCK_HEIGHT},
+            rock_img,
+            5.0f,
+            false,
+            0
+        };
+    }
+}
+
 void initBoss(Boss* boss, int worldWidth) {
-    if (!boss_img || !boss_attack_img) exit(1);
     memset(boss, 0, sizeof(Boss));
     boss->sprite = boss_img;
     boss->attack_sprite = boss_attack_img;
@@ -248,9 +236,56 @@ void initMinimap(Minimap* minimap) {
     minimap->movingPlatformColor = (SDL_Color){0, 100, 255, 255};
 }
 
+void updatePitEnemies(PitEnemy enemies[], int count, Player* p, Background* bg) {
+    for (int i = 0; i < count; i++) {
+        if (!enemies[i].isActive) continue;
+        SDL_Rect playerWorldPos = {p->pos.x + (int)bg->cameraX, p->pos.y, p->pos.w, p->pos.h};
+        if (checkCollision(playerWorldPos, enemies[i].pos)) {
+            if (!p->isInvincible) {
+                p->health -= PIT_ENEMY_DAMAGE;
+                p->isInvincible = true;
+                p->lastHitTime = SDL_GetTicks();
+            }
+        }
+    }
+}
+
+void updateRocks(Rock rocks[], int count, Player* p, Background* bg) {
+    Uint32 currentTime = SDL_GetTicks();
+    for (int i = 0; i < count; i++) {
+        if (!rocks[i].isActive) {
+            if (currentTime - rocks[i].spawnTime > ROCK_SPAWN_INTERVAL) {
+                rocks[i].isActive = true;
+                rocks[i].spawnTime = currentTime;
+            }
+            continue;
+        }
+        rocks[i].pos.y += rocks[i].vy;
+        if (rocks[i].pos.y > SCREEN_HEIGHT) {
+            rocks[i].isActive = false;
+            rocks[i].pos.y = -ROCK_HEIGHT;
+            rocks[i].spawnTime = currentTime;
+        }
+        SDL_Rect playerWorldPos = {p->pos.x + (int)bg->cameraX, p->pos.y, p->pos.w, p->pos.h};
+        if (checkCollision(playerWorldPos, rocks[i].pos)) {
+            if (!p->isInvincible) {
+                p->health -= ROCK_DAMAGE;
+                p->isInvincible = true;
+                p->lastHitTime = SDL_GetTicks();
+            }
+            rocks[i].isActive = false;
+            rocks[i].pos.y = -ROCK_HEIGHT;
+            rocks[i].spawnTime = currentTime;
+        }
+    }
+}
+
 void saveGame(Player* p, Background* bg, Platform platforms[], int platformCount, Boss* boss, Enemy enemies[], int enemiesRemaining) {
     FILE* file = fopen("../menu/savegame.dat", "wb");
-    if (!file) return;
+    if (!file) {
+        fprintf(stderr, "Failed to open ../menu/savegame.dat for writing: %s\n", strerror(errno));
+        return;
+    }
     fwrite(p, sizeof(Player), 1, file);
     fwrite(bg, sizeof(Background), 1, file);
     fwrite(&platformCount, sizeof(int), 1, file);
@@ -259,11 +294,13 @@ void saveGame(Player* p, Background* bg, Platform platforms[], int platformCount
     fwrite(enemies, sizeof(Enemy), MAX_ENEMIES, file);
     fwrite(&enemiesRemaining, sizeof(int), 1, file);
     fclose(file);
+    printf("Game saved successfully to ../menu/savegame.dat\n");
 }
+
 bool loadGame(Player* p, Background* bg, Platform platforms[], int* platformCount, Boss* boss, Enemy enemies[], int* enemiesRemaining) {
     FILE* file = fopen("../menu/savegame.dat", "rb");
     if (!file) {
-        fprintf(stderr, "Failed to open savegame.dat: %s\n", strerror(errno));
+        fprintf(stderr, "Failed to open ../menu/savegame.dat for reading: %s\n", strerror(errno));
         return false;
     }
     
@@ -274,55 +311,48 @@ bool loadGame(Player* p, Background* bg, Platform platforms[], int* platformCoun
         fread(boss, sizeof(Boss), 1, file) != 1 ||
         fread(enemies, sizeof(Enemy), MAX_ENEMIES, file) != MAX_ENEMIES ||
         fread(enemiesRemaining, sizeof(int), 1, file) != 1) {
-        fprintf(stderr, "Failed to read save data: %s\n", strerror(errno));
+        fprintf(stderr, "Failed to read save data from ../menu/savegame.dat: %s\n", strerror(errno));
         fclose(file);
         return false;
     }
     
     fclose(file);
 
-    // Reinitialize SDL surface pointers to fix segmentation fault
+    // Reinitialize SDL surface pointers
     p->idle_sprite = player_idle_img;
     memcpy(p->walk_sprites, player_walk_imgs, sizeof(player_walk_imgs));
     p->attack_sprite = player_attack_img;
-
     bg->img = background_img;
-
     for (int i = 0; i < *platformCount; i++) {
-        platforms[i].image = platforms[i].isMoving ? moving_platform_img : static_platform_img;
+        if (i == 0) {
+            // Ground platform always uses ground_platform_img
+            platforms[i].image = ground_platform_img;
+        } else {
+            // Other platforms use moving or static sprites
+            platforms[i].image = platforms[i].isMoving ? moving_platform_img : static_platform_img;
+        }
     }
-
     boss->sprite = boss_img;
     boss->attack_sprite = boss_attack_img;
-
     for (int i = 0; i < MAX_ENEMIES; i++) {
         enemies[i].sprite = enemies[i].isVertical ? vertical_enemy_img : boss_img;
         enemies[i].attack_sprite = boss_attack_img;
         enemies[i].vertical_sprite = enemies[i].isVertical ? vertical_enemy_img : boss_img;
     }
 
+    printf("Game loaded successfully from ../menu/savegame.dat\n");
     return true;
 }
 void handleEvents(Player* p, bool* running, Background* bg, Platform platforms[], int* count, Boss* boss, Enemy enemies[], int* enemiesRemaining) {
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
         switch (event.type) {
-            case SDL_QUIT:
-                *running = false;
-                break;
+            case SDL_QUIT: *running = false; break;
             case SDL_KEYDOWN:
                 if (bg->state == GAME_STATE_PLAYING && !bg->timeStopped && !bg->paused) {
                     switch (event.key.keysym.sym) {
-                        case SDLK_LEFT: 
-                            p->ax = -PLAYER_ACCEL; 
-                            p->facingRight = false;
-                            p->isWalking = true;
-                            break;
-                        case SDLK_RIGHT: 
-                            p->ax = PLAYER_ACCEL; 
-                            p->facingRight = true;
-                            p->isWalking = true;
-                            break;
+                        case SDLK_LEFT: p->ax = -PLAYER_ACCEL; p->facingRight = false; p->isWalking = true; break;
+                        case SDLK_RIGHT: p->ax = PLAYER_ACCEL; p->facingRight = true; p->isWalking = true; break;
                         case SDLK_UP:
                             if (!p->isJumping) {
                                 p->vy = JUMP_FORCE;
@@ -345,27 +375,20 @@ void handleEvents(Player* p, bool* running, Background* bg, Platform platforms[]
                                 };
                             }
                             break;
-                        case SDLK_LCTRL:
-                            p->isSprinting = true;
-                            break;
+                        case SDLK_LCTRL: p->isSprinting = true; break;
                         case SDLK_x:
                             if (bg->qteActive && SDL_GetTicks() - bg->qteStartTime <= QTE_DURATION) {
                                 bg->qteActive = false;
                                 bg->timeStopPrep = 0;
                             }
                             break;
-                        default:
-                            break;
                     }
-                } else if (bg->state == GAME_STATE_MENU) {
-                    if (event.key.keysym.sym == SDLK_RETURN) {
-                        bg->state = GAME_STATE_PLAYING;
-                        bg->needsReset = true;
-                    }
+                } else if (bg->state == GAME_STATE_MENU && event.key.keysym.sym == SDLK_RETURN) {
+                    bg->state = GAME_STATE_PLAYING;
+                    bg->needsReset = true;
                 }
                 if (event.key.keysym.sym == SDLK_ESCAPE) *running = false;
-                if (event.key.keysym.sym == SDLK_r && 
-                    (bg->state == GAME_STATE_GAME_OVER || bg->state == GAME_STATE_VICTORY)) {
+                if (event.key.keysym.sym == SDLK_r && (bg->state == GAME_STATE_GAME_OVER || bg->state == GAME_STATE_VICTORY)) {
                     bg->needsReset = true;
                     bg->state = GAME_STATE_PLAYING;
                 }
@@ -373,19 +396,9 @@ void handleEvents(Player* p, bool* running, Background* bg, Platform platforms[]
             case SDL_KEYUP:
                 if (bg->state == GAME_STATE_PLAYING && !bg->timeStopped && !bg->paused) {
                     switch (event.key.keysym.sym) {
-                        case SDLK_LEFT: 
-                            if (p->ax < 0) p->ax = 0; 
-                            if (p->vx == 0) p->isWalking = false;
-                            break;
-                        case SDLK_RIGHT: 
-                            if (p->ax > 0) p->ax = 0; 
-                            if (p->vx == 0) p->isWalking = false;
-                            break;
-                        case SDLK_LCTRL: 
-                            p->isSprinting = false; 
-                            break;
-                        default:
-                            break;
+                        case SDLK_LEFT: if (p->ax < 0) p->ax = 0; if (p->vx == 0) p->isWalking = false; break;
+                        case SDLK_RIGHT: if (p->ax > 0) p->ax = 0; if (p->vx == 0) p->isWalking = false; break;
+                        case SDLK_LCTRL: p->isSprinting = false; break;
                     }
                 }
                 break;
@@ -422,10 +435,7 @@ void handleEvents(Player* p, bool* running, Background* bg, Platform platforms[]
 
 void updateBossAI(Boss* boss, Player* player, Background* bg) {
     if (!boss->isActive) {
-        if (boss->shouldSpawn && fabs((player->pos.x + bg->cameraX) - boss->pos.x) < BOSS_AGGRO_RANGE) {
-            boss->isActive = true;
-            boss->lastTimeStopAttempt = SDL_GetTicks();
-        }
+        if (boss->shouldSpawn && fabs((player->pos.x + bg->cameraX) - boss->pos.x) < BOSS_AGGRO_RANGE) boss->isActive = true;
         return;
     }
     float playerX = player->pos.x + bg->cameraX;
@@ -512,9 +522,7 @@ void updateEnemyAI(Enemy* enemy, Player* p, Background* bg, bool* enemyIsAttacki
             enemy->isMoving = false;
             enemy->vx = 0;
             enemy->lastMoveTime = currentTime;
-        } else if (enemy->isMoving) {
-            enemy->vx = enemy->moveDirection * ENEMY_ROAM_SPEED;
-        }
+        } else if (enemy->isMoving) enemy->vx = enemy->moveDirection * ENEMY_ROAM_SPEED;
     }
     enemy->pos.x += enemy->vx;
     if (enemy->isAttacking && currentTime - enemy->attackStartTime > ENEMY_ATTACK_DURATION) {
@@ -523,7 +531,7 @@ void updateEnemyAI(Enemy* enemy, Player* p, Background* bg, bool* enemyIsAttacki
     }
 }
 
-void resetGame(Player* p, Background* bg, Platform platforms[], int* platformCount, Boss* boss, Enemy enemies[], int* enemiesRemaining, Minimap* minimap) {
+void resetGame(Player* p, Background* bg, Platform platforms[], int* platformCount, Boss* boss, Enemy enemies[], int* enemiesRemaining, Minimap* minimap, Pit pits[], int* pitCount, PitEnemy pitEnemies[], Rock rocks[]) {
     initPlayer(p);
     initMinimap(minimap);
     bg->cameraX = bg->score = 0;
@@ -531,24 +539,28 @@ void resetGame(Player* p, Background* bg, Platform platforms[], int* platformCou
     bg->needsReset = bg->timeStopped = bg->qteActive = bg->paused = false;
     bg->timeStopStart = bg->timeStopDuration = bg->timeStopPrep = bg->qteStartTime = 0;
     initPlatforms(platforms, platformCount, bg->width);
+    initPits(pits, pitCount, bg->width);
+    initPitEnemies(pitEnemies, pits, *pitCount);
+    initRocks(rocks, bg->width);
     initBoss(boss, bg->width);
     initEnemies(enemies, bg->width);
     *enemiesRemaining = MAX_ENEMIES;
     Mix_PlayMusic(background_music, -1);
 }
 
-void updateGame(Player* p, Platform platforms[], int* count, Background* bg, Boss* boss, Enemy enemies[], int* enemiesRemaining) {
+void updateGame(Player* p, Platform platforms[], int* count, Background* bg, Boss* boss, Enemy enemies[], int* enemiesRemaining, Pit pits[], int pitCount, PitEnemy pitEnemies[], Rock rocks[]) {
     if (bg->needsReset) {
         Minimap minimap;
-        resetGame(p, bg, platforms, count, boss, enemies, enemiesRemaining, &minimap);
+        Pit pits[MAX_PITS];
+        PitEnemy pitEnemies[MAX_PITS];
+        Rock rocks[MAX_ROCKS];
+        resetGame(p, bg, platforms, count, boss, enemies, enemiesRemaining, &minimap, pits, &pitCount, pitEnemies, rocks);
         return;
     }
     if (bg->state != GAME_STATE_PLAYING || bg->paused) return;
     static bool enemyIsAttacking = false, wasTimeStopped = false;
     int aliveEnemies = 0;
-    for (int i = 0; i < MAX_ENEMIES; i++) {
-        if (enemies[i].isActive && !enemies[i].isDead) aliveEnemies++;
-    }
+    for (int i = 0; i < MAX_ENEMIES; i++) if (enemies[i].isActive && !enemies[i].isDead) aliveEnemies++;
     *enemiesRemaining = aliveEnemies;
     if (*enemiesRemaining <= 0 && !boss->shouldSpawn) boss->shouldSpawn = true;
     if (!p->isJumping && !p->wasInAir) p->fallStartY = p->pos.y;
@@ -628,9 +640,8 @@ void updateGame(Player* p, Platform platforms[], int* count, Background* bg, Bos
                         p->fallDamageTime = SDL_GetTicks();
                         if (p->health <= 0) {
                             p->lives--;
-                            if (p->lives <= 0) {
-                                bg->state = GAME_STATE_GAME_OVER;
-                            } else {
+                            if (p->lives <= 0) bg->state = GAME_STATE_GAME_OVER;
+                            else {
                                 p->health = PLAYER_HEALTH;
                                 p->pos.y = GROUND_PLATFORM_HEIGHT - p->pos.h;
                                 p->vy = 0;
@@ -647,9 +658,7 @@ void updateGame(Player* p, Platform platforms[], int* count, Background* bg, Bos
                 if (platforms[j].isMoving) {
                     p->isOnMovingPlatform = true;
                     p->movingPlatformId = j;
-                    if (wasOnPlatform && p->movingPlatformId == j) {
-                        p->pos.x += MOVING_PLATFORM_SPEED * platforms[j].moveDirection;
-                    }
+                    if (wasOnPlatform && p->movingPlatformId == j) p->pos.x += MOVING_PLATFORM_SPEED * platforms[j].moveDirection;
                 }
             } else if (playerWorldPos.y + playerWorldPos.h > platformRect.y + PLATFORM_COLLISION_MARGIN) {
                 p->pos.x = playerWorldPos.x < platformRect.x ? platformRect.x - p->pos.w : platformRect.x + platformRect.w;
@@ -657,11 +666,22 @@ void updateGame(Player* p, Platform platforms[], int* count, Background* bg, Bos
             }
         }
     }
+    for (int i = 0; i < pitCount; i++) {
+        if (!pits[i].isActive) continue;
+        if (checkCollision(playerWorldPos, pits[i].rect)) {
+            if (!p->isInvincible) {
+                p->health -= PIT_ENEMY_DAMAGE;
+                p->isInvincible = true;
+                p->lastHitTime = SDL_GetTicks();
+            }
+        }
+    }
+    updatePitEnemies(pitEnemies, pitCount, p, bg);
+    updateRocks(rocks, MAX_ROCKS, p, bg);
     if (p->pos.y > SCREEN_HEIGHT || p->health <= 0) {
         p->lives--;
-        if (p->lives <= 0) {
-            bg->state = GAME_STATE_GAME_OVER;
-        } else {
+        if (p->lives <= 0) bg->state = GAME_STATE_GAME_OVER;
+        else {
             p->health = PLAYER_HEALTH;
             p->pos.y = GROUND_PLATFORM_HEIGHT - p->pos.h;
             p->vy = 0;
@@ -674,9 +694,7 @@ void updateGame(Player* p, Platform platforms[], int* count, Background* bg, Bos
         p->isAttacking = false;
         p->attackHitbox = (SDL_Rect){0, 0, 0, 0};
     }
-    if (p->isInvincible && SDL_GetTicks() - p->lastHitTime > INVINCIBILITY_DURATION) {
-        p->isInvincible = false;
-    }
+    if (p->isInvincible && SDL_GetTicks() - p->lastHitTime > INVINCIBILITY_DURATION) p->isInvincible = false;
     if (p->isWalking && SDL_GetTicks() - p->last_frame_time > WALK_ANIMATION_DELAY) {
         p->current_walk_frame = (p->current_walk_frame + 1) % WALK_ANIMATION_FRAMES;
         p->last_frame_time = SDL_GetTicks();
@@ -691,9 +709,7 @@ void updateGame(Player* p, Platform platforms[], int* count, Background* bg, Bos
     for (int i = 0; i < *count; i++) {
         if (platforms[i].isMoving && platforms[i].isActive && !bg->timeStopped) {
             platforms[i].rect.x += MOVING_PLATFORM_SPEED * platforms[i].moveDirection;
-            if (abs(platforms[i].rect.x - platforms[i].originalX) > platforms[i].moveDistance) {
-                platforms[i].moveDirection *= -1;
-            }
+            if (abs(platforms[i].rect.x - platforms[i].originalX) > platforms[i].moveDistance) platforms[i].moveDirection *= -1;
         }
     }
     updateBossAI(boss, p, bg);
@@ -893,7 +909,7 @@ void renderMinimap(Minimap* minimap, Player* p, Background* bg, Platform platfor
     SDL_FreeSurface(minimap->frame);
 }
 
-void renderGame(Player* p, Background* bg, Platform platforms[], int count, Boss* boss, Enemy enemies[], int enemiesRemaining, Minimap* minimap) {
+void renderGame(Player* p, Background* bg, Platform platforms[], int count, Boss* boss, Enemy enemies[], int enemiesRemaining, Minimap* minimap, Pit pits[], int pitCount, PitEnemy pitEnemies[], Rock rocks[]) {
     if (!screen) return;
     SDL_FillRect(screen, NULL, SDL_MapRGB(screen->format, 50, 50, 100));
     if (bg->state == GAME_STATE_MENU) {
@@ -913,9 +929,7 @@ void renderGame(Player* p, Background* bg, Platform platforms[], int count, Boss
         SDL_BlitSurface(stretched_bg, NULL, screen, &dest_rect);
         SDL_FreeSurface(stretched_bg);
     }
-    if (src_rect.w < SCREEN_WIDTH) {
-        SDL_FillRect(screen, &(SDL_Rect){src_rect.w, 0, SCREEN_WIDTH - src_rect.w, SCREEN_HEIGHT}, SDL_MapRGB(screen->format, 50, 50, 100));
-    }
+    if (src_rect.w < SCREEN_WIDTH) SDL_FillRect(screen, &(SDL_Rect){src_rect.w, 0, SCREEN_WIDTH - src_rect.w, SCREEN_HEIGHT}, SDL_MapRGB(screen->format, 50, 50, 100));
     for (int i = 0; i < count; i++) {
         if (!platforms[i].isActive || !platforms[i].image) continue;
         int platformScreenX = platforms[i].rect.x - (int)bg->cameraX;
@@ -926,6 +940,27 @@ void renderGame(Player* p, Background* bg, Platform platforms[], int count, Boss
                 SDL_BlitSurface(platforms[i].image, NULL, screen, &(SDL_Rect){r.x + t * platforms[i].image->w, r.y, 
                                         MIN(platforms[i].image->w, r.w - t * platforms[i].image->w), r.h});
             }
+        }
+    }
+    for (int i = 0; i < pitCount; i++) {
+        if (!pits[i].isActive) continue;
+        SDL_Rect pitScreenPos = {pits[i].rect.x - (int)bg->cameraX, pits[i].rect.y - (int)bg->cameraY, pits[i].rect.w, pits[i].rect.h};
+        if (pitScreenPos.x + pits[i].rect.w > 0 && pitScreenPos.x < SCREEN_WIDTH) {
+            SDL_FillRect(screen, &pitScreenPos, SDL_MapRGB(screen->format, 0, 0, 0));
+        }
+    }
+    for (int i = 0; i < pitCount; i++) {
+        if (!pitEnemies[i].isActive) continue;
+        SDL_Rect enemyScreenPos = {pitEnemies[i].pos.x - (int)bg->cameraX, pitEnemies[i].pos.y - (int)bg->cameraY, pitEnemies[i].pos.w, pitEnemies[i].pos.h};
+        if (enemyScreenPos.x + pitEnemies[i].pos.w > 0 && enemyScreenPos.x < SCREEN_WIDTH) {
+            SDL_BlitSurface(pitEnemies[i].sprite, NULL, screen, &enemyScreenPos);
+        }
+    }
+    for (int i = 0; i < MAX_ROCKS; i++) {
+        if (!rocks[i].isActive) continue;
+        SDL_Rect rockScreenPos = {rocks[i].pos.x - (int)bg->cameraX, rocks[i].pos.y - (int)bg->cameraY, rocks[i].pos.w, rocks[i].pos.h};
+        if (rockScreenPos.x + rocks[i].pos.w > 0 && rockScreenPos.x < SCREEN_WIDTH) {
+            SDL_BlitSurface(rocks[i].sprite, NULL, screen, &rockScreenPos);
         }
     }
     for (int i = 0; i < MAX_ENEMIES; i++) {
@@ -984,9 +1019,7 @@ void renderGame(Player* p, Background* bg, Platform platforms[], int count, Boss
             if (!p->facingRight) SDL_FreeSurface(attackSprite);
         }
     }
-    if (SDL_GetTicks() - p->fallDamageTime < FALL_DAMAGE_EFFECT_DURATION) {
-        SDL_BlitSurface(fall_effect_img, NULL, screen, &(SDL_Rect){0, -210, 800, 600});
-    }
+    if (SDL_GetTicks() - p->fallDamageTime < FALL_DAMAGE_EFFECT_DURATION) SDL_BlitSurface(fall_effect_img, NULL, screen, &(SDL_Rect){0, -210, 800, 600});
     renderTimer(bg);
     renderScore(bg);
     renderHealthBars(p, boss, bg);
@@ -1023,6 +1056,7 @@ void renderGame(Player* p, Background* bg, Platform platforms[], int count, Boss
 }
 
 void cleanUp(Player* p, Background* bg, Boss* boss, Minimap* minimap) {
+    SDL_FreeSurface(ground_platform_img);
     SDL_FreeSurface(static_platform_img);
     SDL_FreeSurface(moving_platform_img);
     SDL_FreeSurface(boss_img);
@@ -1036,6 +1070,8 @@ void cleanUp(Player* p, Background* bg, Boss* boss, Minimap* minimap) {
     SDL_FreeSurface(pause_img);
     SDL_FreeSurface(save_button_img);
     SDL_FreeSurface(resume_button_img);
+    SDL_FreeSurface(pit_enemy_img);
+    SDL_FreeSurface(rock_img);
     Mix_FreeChunk(stop_sound);
     Mix_FreeChunk(pause_sound);
     Mix_FreeMusic(background_music);
