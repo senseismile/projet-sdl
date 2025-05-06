@@ -37,14 +37,17 @@ void stopHoverSound() {
 }
 
 int loadAndRunGame() {
-    if (access("savegame.dat", F_OK) != 0) return 0;
+    if (access("savegame.dat", F_OK) != 0) {
+        fprintf(stderr, "No savegame.dat found in menu directory\n");
+        return 0;
+    }
     
     Mix_FreeMusic(guiMusic);
     Mix_FreeMusic(bgMusic);
     Mix_CloseAudio();
     SDL_Quit();
     
-    chdir("../final");
+    chdir("../final2");
     execl("./game", "./game", "--load", NULL);
     
     perror("Failed to launch game");
